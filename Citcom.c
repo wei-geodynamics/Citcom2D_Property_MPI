@@ -37,7 +37,8 @@ char **argv;
     void solve_derived_velocities();
     void process_temp_field();
     void process_heating();
-
+    void parallel_process_initilization();
+    void parallel_process_termination();
     double dot();
 
     int k, i, *temp;
@@ -79,9 +80,11 @@ char **argv;
     }
 
     general_stokes_solver(&E);
+//    fprintf(stderr, "after stokes\n");
     process_temp_field(&E, E.monitor.solution_cycles);
+//    fprintf(stderr, "after temp\n");
     process_new_velocity(&E, E.monitor.solution_cycles);
-
+//    fprintf(stderr, "after new velocity\n");
     if (E.control.stokes)
     {
         E.control.keep_going = 0;
@@ -94,26 +97,36 @@ char **argv;
         E.monitor.solution_cycles++;
         if (E.monitor.solution_cycles > E.control.print_convergence)
             E.control.print_convergence = 1;
+//        fprintf(stderr, "before heating\n");
 
         process_heating(&E);
+//        fprintf(stderr, "before next buo\n");
 
         (E.next_buoyancy_field)(&E);
+//        fprintf(stderr, "before temp field\n");
 
         process_temp_field(&E, E.monitor.solution_cycles);
-
-        E.monitor.elapsed_time += E.advection.timestep;
+        /* has moved to Advectoin_diffusion */
+        /*E.monitor.elapsed_time += E.advection.timestep;*/
+//        fprintf(stderr, "before stokes %d\n",E.parallel.me);
 
         general_stokes_solver(&E);
+//        fprintf(stderr, "before new velocity %d\n",E.parallel.me);
+
         process_new_velocity(&E, E.monitor.solution_cycles);
 
         if (E.control.imposevelo && E.monitor.elapsed_time * E.control.timescale >= E.control.age_total_double)
         {
             E.control.keep_going = 0;
         }
+//        fprintf(stderr, "before next buo\n");
 
         if (E.control.composition && strcmp(E.control.comp_adv_method, "particle") == 0)
             (E.next_buoyancy_field)(&E);
-        for (i = 1; i <= E.mesh.nno; i++)
+
+//        fprintf(stderr, "after next buo\n");
+
+        for (i = 1; i <= E.lmesh.nno; i++)
         {
             E.T_old[i] = E.T[i];
         }
@@ -128,8 +141,8 @@ char **argv;
     if (E.parallel.me == 0)
     {
         time = CPU_time0() - initial_time;
-        fprintf(E.fp, "Average cpu time taken for velocity step = %f\n", time / ((float)(E.monitor.solution_cycles - 1)));
-        fprintf(stderr, "Average cpu time taken for velocity step = %f\n", time / ((float)(E.monitor.solution_cycles - 1)));
+        fprintf(E.fp, "Average cpu time taken for velocity step = %f\n", time / ((double)(E.monitor.solution_cycles)));
+        fprintf(stderr, "Average cpu time taken for velocity step = %f\n", time / ((double)(E.monitor.solution_cycles)));
     }
 
     fclose(E.fp);

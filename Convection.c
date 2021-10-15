@@ -142,9 +142,109 @@ void convection_allocate_memory(E) struct All_variables *E;
 void convection_initial_fields(E) struct All_variables *E;
 
 {
+  int i;
+  int me = E->parallel.me;
   void convection_initial_temperature();
   void convection_initial_markers();
+  const int nno = E->lmesh.nno;
+  const int nel = E->lmesh.nel;
+  if (E->control.composition)
+  {
+    E->Cdot = (double *)malloc((nno + 1) * sizeof(double));
+    for (i = 1; i <= nno; i++)
+      E->Cdot[i] = 0.0;
+    if (!(strcmp(E->control.comp_adv_method, "field") == 0))
+    {
+      E->advection.markers = E->advection.markers_per_ele * E->mesh.nel;
+      E->advection.markers = E->advection.markers * E->lmesh.volume / E->mesh.volume;
+      E->advection.markers_uplimit = E->advection.markers * 2;
+      fprintf(stderr, "CPU %d %d %.4e %.4e", E->parallel.me, E->advection.markers, E->lmesh.volume, E->mesh.volume);
+      for (i = 1; i <= E->mesh.nsd; i++)
+      {
+        E->VO[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->XMC[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->XMCpred[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->Vpred[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+      }
+      E->C12 = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
+      E->CElement = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
+      E->traces_leave = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
+    }
 
+    if (E->control.phasefile_C || E->control.phasefile_Complete)
+    {
+      if (me == 0)
+        fprintf(stderr, "construct marker array\n");
+      /* creat array for tracer to store  in marker size */
+      /* note first two are int for flavor */
+      E->C_phasefile_markers_int_num_store = 0;
+      for (i = 0; i <= 1; i++)
+      {
+        E->C_phasefile_marker_int[i] = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
+        E->C_phasefile_markers_int_num_store++;
+      }
+      /* the next two are for initial processer number and marker ID */
+      for (i = 2; i <= 3; i++)
+      {
+        E->C_phasefile_marker_int[i] = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
+        E->C_phasefile_markers_int_num_store++;
+      }
+      /* the first n double are not used yet */
+      E->C_phasefile_markers_double_num_store = 0;
+      for (i = 0; i <= 1 - 1; i++)
+      {
+        E->C_phasefile_marker_double[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->C_phasefile_markers_double_num_store++;
+      }
+      /* creat array for tracer to store  in element size */
+      if (me == 0)
+        fprintf(stderr, "construct marker element array\n");
+      /* the first n are for ratio of each type particle */
+      for (i = 0; i <= E->control.phasefile_C_num_element - 1; i++)
+      {
+        E->C_phasefile_element[i] = (double *)malloc((nel + 1) * sizeof(double));
+      }
+      if (me == 0)
+        fprintf(stderr, "construct marker nno array\n");
+
+      /* creat array for tracer to store  in nno size */
+      /* the first n are for C component at nodes */
+      for (i = 0; i <= E->control.phasefile_C_num_nno - 1; i++)
+      {
+        E->C_phasefile_nno[i] = (double *)malloc((nno + 1) * sizeof(double));
+      }
+    }
+
+    if (E->control.phasevisc_C)
+    {
+      E->Cphasedot = (double *)malloc((nno + 1) * sizeof(double));
+      E->Cphasedotnum = (double *)malloc((nno + 1) * sizeof(double));
+      E->Cphase_node = (double *)malloc((nno + 1) * sizeof(double));
+
+      E->Tphase_node = (double *)malloc((nno + 1) * sizeof(double));
+      E->Pphase_node = (double *)malloc((nno + 1) * sizeof(double));
+
+      for (i = 1; i <= nno; i++)
+      {
+        E->Cphasedot[i] = 0.0;
+        E->Cphasedotnum[i] = 0.0;
+      }
+      //      if (!(strcmp(E->control.comp_adv_method,"field")==0)) {
+      E->Cphase_marker = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+      E->Cphase_marker_old = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+      E->Tphase_marker = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+      E->Pphase_marker = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+      if (E->control.phasevisc_d)
+      {
+        E->d_marker = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->d_marker_old = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->d_dotnum = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->d_dot = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
+        E->d_node = (double *)malloc((nno + 1) * sizeof(double));
+      }
+      //      }
+    }
+  }
   report(E, "convection, initial temperature");
   convection_initial_temperature(E);
 
@@ -162,10 +262,11 @@ void convection_boundary_conditions(E) struct All_variables *E;
   void composition_boundary_conditions();
 
   velocity_boundary_conditions(E); /* universal */
+  fprintf(stderr, "okvelo \n");
   temperature_boundary_conditions(E);
-
+  fprintf(stderr, "oktemp\n");
   temperatures_conform_bcs(E);
-
+  fprintf(stderr, "ok10\n");
   composition_boundary_conditions(E);
 
   return;
@@ -190,7 +291,7 @@ void convection_initial_temperature(E) struct All_variables *E;
   void convection_initial_markers1();
   void convection_initial_markers2();
   void convection_initial_markers_phasechange();
-  int in1, in2, in3, instance, nox, noy, noz, nfz, ok, noz2, ll, mm;
+  int in1, in2, in3, instance, nfz, ok, noz2, ll, mm;
   char output_file[255];
   double lithThick;
   double tbase, tbase1, t1, r1, weight, para1, plate_velocity, delta_temp, age;
@@ -199,9 +300,10 @@ void convection_initial_temperature(E) struct All_variables *E;
   const int dims = E->mesh.nsd;
   const double e_5 = 1.0e-5;
   double tempdist, center_x, center_z, center_r;
-  noy = E->mesh.noy;
-  noz = E->mesh.noz;
-  nox = E->mesh.nox;
+  const int noy = E->lmesh.noy;
+  const int noz = E->lmesh.noz;
+  const int nox = E->lmesh.nox;
+  const int nno = nox * noz;
 
   para1 = E->control.Ts * E->data.ref_temperature + 0.4 * E->data.ref_temperature;
 
@@ -235,6 +337,9 @@ void convection_initial_temperature(E) struct All_variables *E;
 
           switch (E->control.initialTOption)
           {
+          case -1:
+            E->T[node] = 0.0;
+            break;
           case 0:
             if (E->control.temperature_perturbation)
             {
@@ -422,7 +527,7 @@ void convection_initial_temperature(E) struct All_variables *E;
               if (r1 >= 1.0 - E->control.depth_lith_margin && r1 <= 1.0 - E->viscosity.zcrust1 && (1.0 - inter_z) * t1 + (inter_x - 1.0) * r1 <= inter_x - inter_z)
               {
                 tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
-                
+
                 /*if (t1 >= 0.9 && r1 >= 0.9)
                   fprintf(stderr, "%d %lf %lf %lf %lf %lf %lf\n", node, t1, t1 - center_x, r1, center_z, r1 - center_z, tempdist);*/
                 if (tempdist <= E->control.depth_ocean_lith && tempdist >= 0)
@@ -460,14 +565,26 @@ void convection_initial_temperature(E) struct All_variables *E;
       }
       else if ((strcmp(E->control.comp_adv_method, "field") == 0))
       {
-        for (node = 1; node <= E->mesh.nno; node++)
+        for (node = 1; node <= nno; node++)
         {
           t1 = E->X[1][node];
           r1 = E->X[2][node];
-          if (r1 >= 1.0 - E->viscosity.zcrust1)
-            E->C[node] = 1.0;
-          else
-            E->C[node] = 0.0;
+          switch (E->control.initialCOption)
+          {
+          case 1:
+            if (r1 <= 1.0 - E->viscosity.zcrust1)
+              E->C[node] = 1.0;
+            else
+              E->C[node] = 0.0;
+            break;
+          case 2:
+            if (r1 >= 1.0 - E->viscosity.zcrust1)
+              E->C[node] = 1.0;
+            else
+              E->C[node] = 0.0;
+          default:
+            break;
+          }
         }
       }
     }
@@ -493,209 +610,254 @@ void convection_initial_temperature(E) struct All_variables *E;
 void convection_initial_markers(E) struct All_variables *E;
 {
   int el, i, j, k, p, node, ii, jj;
-  double dx, dr;
+  double dx, dX[4], dr, x, z;
   char input_s[100], output_file[255];
   FILE *fp;
   void get_C_from_markers();
   void get_C_from_markers_multi();
   double t1, r1, tempdist, loc_mid, center_x, center_z;
   node = 0;
+  const int nel = E->lmesh.nel;
+  const int nno = E->lmesh.nno;
   p = pow((double)E->advection.markers_per_ele, (double)(1.0 / E->mesh.dof));
-  for (el = 1; el <= E->mesh.nel; el++)
+  fprintf(stderr, "p = %d el = %d", p, nel);
+  do
   {
-    dx = (E->X[1][E->ien[el].node[3]] - E->X[1][E->ien[el].node[1]]) / p;
-    dr = (E->X[2][E->ien[el].node[3]] - E->X[2][E->ien[el].node[1]]) / p;
-    for (i = 1; i <= p; i++)
-      for (j = 1; j <= p; j++)
+    x = drand48() * (E->XG2[1] - E->XG1[1]);
+    z = drand48() * (E->XG2[2] - E->XG1[2]);
+    if ((x >= E->XP[1][1] && x <= E->XP[1][E->lmesh.nox]) && (z >= E->XP[2][1] && z <= E->XP[2][E->lmesh.noz]))
+    {
+      node++;
+      E->XMC[1][node] = x;
+      E->XMC[2][node] = z;
+      el = get_element(E, E->XMC[1][node], E->XMC[2][node], dX);
+      E->CElement[node] = el;
+      E->C12[node] = 0;
+      switch (E->control.initialCOption)
       {
-        node++;
-        E->XMC[1][node] = E->X[1][E->ien[el].node[1]] + dx * (i - 0.5);
-        E->XMC[2][node] = E->X[2][E->ien[el].node[1]] + dr * (j - 0.5);
-        E->CElement[node] = el;
-        if (E->XMC[2][node] > (E->viscosity.zcrust1 + 0.02 * cos(M_PI * E->XMC[1][node] / E->X[1][E->mesh.nno])))
+      case 1:
+        if (E->XMC[2][node] > (E->viscosity.zcrust1 + 0.02 * cos(M_PI * E->XMC[1][node] / E->mesh.layer[1])))
           E->C12[node] = 0;
         else
           E->C12[node] = 1;
+        break;
+      case 2:
+        break;
+      default:
+        break;
+      }
 
+      if (E->control.phasevisc_d)
+      {
+        if (E->XMC[2][node] < E->viscosity.zlm)
+          E->C12[node] = 1;
+        else
+          E->C12[node] = 0;
         if (E->control.phasevisc_d)
         {
-          if (E->XMC[2][node] < E->viscosity.zlm)
-            E->C12[node] = 1;
-          else
-            E->C12[node] = 0;
-          if (E->control.phasevisc_d)
-          {
-            E->d_marker[node] = E->control.phasevisc_d0;
-            E->d_marker_old[node] = E->control.phasevisc_d0;
-          }
+          E->d_marker[node] = E->control.phasevisc_d0;
+          E->d_marker_old[node] = E->control.phasevisc_d0;
+        }
+      }
+
+      if (E->control.phasefile_C || E->control.phasefile_Complete)
+      {
+        if (E->XMC[2][node] < 1.0 - E->viscosity.zcrust1)
+          E->C12[node] = 0;
+        else
+          E->C12[node] = 1;
+        E->C_phasefile_marker_int[0][node] = E->C12[node];
+        t1 = E->XMC[1][node];
+        r1 = E->XMC[2][node];
+      }
+
+      if (E->control.phasefile_C)
+      {
+        if (E->XMC[2][node] < 1.0 - E->viscosity.zcrust1 && E->XMC[2][node] > 1.0 - E->control.depth_harz)
+        {
+          E->C_phasefile_marker_int[0][node] = 2;
         }
 
-        if (E->control.phasefile_C || E->control.phasefile_Complete)
+        if (E->control.ocean_lith_margin)
         {
-          if (E->XMC[2][node] < 1.0 - E->viscosity.zcrust1)
-            E->C12[node] = 0;
-          else
-            E->C12[node] = 1;
-          E->C_phasefile_marker_int[0][node] = E->C12[node];
-          t1 = E->XMC[1][node];
-          r1 = E->XMC[2][node];
-        }
-
-        if (E->control.phasefile_C)
-        {
-          if (E->XMC[2][node] < 1.0 - E->viscosity.zcrust1 && E->XMC[2][node] > 1.0 - E->control.depth_harz)
-          {
-            E->C_phasefile_marker_int[0][node] = 2;
-          }
-
-          if (E->control.ocean_lith_margin)
-          {
-            switch (E->control.initialTOption)
-            {
-            case 1:
-              tempdist = (t1 - E->control.age_loc_left) * tan(E->control.dip_margin * 3.14159265 / 180.0) + 1.0 - r1;
-              tempdist *= cos(E->control.dip_margin * 3.14159265 / 180.0);
-              break;
-            case 2:
-              center_x = E->control.age_loc_left + E->control.dip_center_x;
-              center_z = 1.0 - E->control.dip_center_z;
-              tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
-              break;
-            }
-
-            if (tempdist >= 0 && tempdist <= E->viscosity.zcrust1 && r1 >= 1.0 - E->control.depth_lith_margin && t1 < E->control.age_loc_left)
-            {
-              E->C12[node] = 1;
-              if (E->control.phasefile_C)
-              {
-                E->C_phasefile_marker_int[0][node] = 1;
-              }
-            }
-            if (E->control.phasefile_C)
-            {
-              if (tempdist > E->viscosity.zcrust1 && tempdist < E->control.depth_harz && r1 >= 1.0 - E->control.depth_lith_margin && r1 <= 1.0 - E->viscosity.zcrust1 && t1 < E->control.age_loc_left)
-              {
-                E->C_phasefile_marker_int[0][node] = 2;
-              }
-            }
-          }
-        }
-
-        if (E->control.phasefile_Complete)
-        {
-          if (r1 < E->viscosity.zlm)
-          {
-            E->C_phasefile_marker_int[0][node] = E->control.phasefile_C_flavor - 1;
-          }
-          if (t1 >= E->control.age_loc_left && t1 <= E->control.age_loc_right)
-          {
-            if (r1 < 1.0 - E->viscosity.zcrust1 && r1 > 1.0 - E->control.depth_harz)
-            {
-              E->C_phasefile_marker_int[0][node] = 2;
-            }
-            else if (r1 <= 1.0 - E->control.depth_harz && r1 > 1.0 - E->control.depth_ocean_lith)
-            {
-              E->C_phasefile_marker_int[0][node] = 3;
-            }
-          }
-          switch (E->control.initialTOption)
+          switch (E->control.initialCOption)
           {
           case 1:
             tempdist = (t1 - E->control.age_loc_left) * tan(E->control.dip_margin * 3.14159265 / 180.0) + 1.0 - r1;
-            //tempdist *= cos(E->control.dip_margin * 3.14159265 / 180.0);
-            if (E->control.continent_lith)
-            {
-              if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
-              {
-                if (r1 >= 1.0 - E->control.depth_continent_crust)
-                {
-                  E->C_phasefile_marker_int[0][node] = 4;
-                }
-                else if (r1 >= 1.0 - E->control.depth_continent_lith)
-                {
-                  E->C_phasefile_marker_int[0][node] = 5;
-                }
-              }
-            }
+            tempdist *= cos(E->control.dip_margin * 3.14159265 / 180.0);
             break;
           case 2:
             center_x = E->control.age_loc_left + E->control.dip_center_x;
             center_z = 1.0 - E->control.dip_center_z;
             tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
-            if (E->control.continent_lith)
-            {
-              if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
-              {
-                if (r1 >= 1.0 - E->control.depth_continent_crust)
-                {
-                  E->C_phasefile_marker_int[0][node] = 4;
-                }
-                else if (r1 >= 1.0 - E->control.depth_continent_lith)
-                {
-                  E->C_phasefile_marker_int[0][node] = 5;
-                }
-              }
-            }
-            break;
-          case 10:
-            center_x = E->control.age_loc_left + E->control.dip_center_x;
-            center_z = 1.0 - E->control.dip_center_z;
-            tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
-            if (E->control.continent_lith)
-            {
-              if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
-              {
-                if (r1 >= 1.0 - E->viscosity.zcrust1)
-                {
-                  E->C_phasefile_marker_int[0][node] = 4;
-                }
-                else if (r1 >= 1.0 - E->control.depth_harz)
-                {
-                  E->C_phasefile_marker_int[0][node] = 5;
-                }
-                else if (r1 >= 1.0 - E->control.depth_continent_lith)
-                {
-                  E->C_phasefile_marker_int[0][node] = 6;
-                }
-                else if (r1 >= E->viscosity.zlm) {
-                  E->C_phasefile_marker_int[0][node] = 0;
-                }
-              }
-            }
             break;
           }
 
-          if (r1 >= 1.0 - E->control.depth_lith_margin)
+          if (tempdist >= 0 && tempdist <= E->viscosity.zcrust1 && r1 >= 1.0 - E->control.depth_lith_margin && t1 < E->control.age_loc_left)
           {
-            if (E->control.initialTOption == 1)
+            E->C12[node] = 1;
+            if (E->control.phasefile_C)
             {
-              center_x = E->control.age_loc_left;
+              E->C_phasefile_marker_int[0][node] = 1;
             }
-            if (t1 < center_x)
+          }
+          if (E->control.phasefile_C)
+          {
+            if (tempdist > E->viscosity.zcrust1 && tempdist < E->control.depth_harz && r1 >= 1.0 - E->control.depth_lith_margin && r1 <= 1.0 - E->viscosity.zcrust1 && t1 < E->control.age_loc_left)
             {
-              if (tempdist >= 0 && tempdist <= E->viscosity.zcrust1)
-              {
-                E->C12[node] = 1;
-                E->C_phasefile_marker_int[0][node] = 1;
-              }
-              else if (tempdist > E->viscosity.zcrust1 && tempdist <= E->control.depth_harz && r1 < 1.0 - E->viscosity.zcrust1)
-              {
-                E->C_phasefile_marker_int[0][node] = 2;
-              }
-              else if (tempdist > E->control.depth_harz && tempdist <= E->control.depth_ocean_lith && r1 < 1.0 - E->control.depth_harz)
-              {
-                E->C_phasefile_marker_int[0][node] = 3;
-              }
+              E->C_phasefile_marker_int[0][node] = 2;
             }
           }
         }
       }
-  }
+
+      if (E->control.phasefile_Complete)
+      {
+        if (r1 < E->viscosity.zlm)
+        {
+          E->C_phasefile_marker_int[0][node] = E->control.phasefile_C_flavor - 1;
+        }
+        if (t1 >= E->control.age_loc_left && t1 <= E->control.age_loc_right)
+        {
+          if (r1 < 1.0 - E->viscosity.zcrust1 && r1 > 1.0 - E->control.depth_harz)
+          {
+            E->C_phasefile_marker_int[0][node] = 2;
+          }
+          else if (r1 <= 1.0 - E->control.depth_harz && r1 > 1.0 - E->control.depth_ocean_lith)
+          {
+            E->C_phasefile_marker_int[0][node] = 3;
+          }
+        }
+        switch (E->control.initialCOption)
+        {
+        case 1:
+          tempdist = (t1 - E->control.age_loc_left) * tan(E->control.dip_margin * 3.14159265 / 180.0) + 1.0 - r1;
+          //tempdist *= cos(E->control.dip_margin * 3.14159265 / 180.0);
+          if (E->control.continent_lith)
+          {
+            if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
+            {
+              if (r1 >= 1.0 - E->control.depth_continent_crust)
+              {
+                E->C_phasefile_marker_int[0][node] = 4;
+              }
+              else if (r1 >= 1.0 - E->control.depth_continent_lith)
+              {
+                E->C_phasefile_marker_int[0][node] = 5;
+              }
+            }
+          }
+          break;
+        case 2:
+          center_x = E->control.age_loc_left + E->control.dip_center_x;
+          center_z = 1.0 - E->control.dip_center_z;
+          tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
+          if (E->control.continent_lith)
+          {
+            if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
+            {
+              if (r1 >= 1.0 - E->control.depth_continent_crust)
+              {
+                E->C_phasefile_marker_int[0][node] = 4;
+              }
+              else if (r1 >= 1.0 - E->control.depth_continent_lith)
+              {
+                E->C_phasefile_marker_int[0][node] = 5;
+              }
+            }
+          }
+          break;
+        case 10:
+          center_x = E->control.age_loc_left + E->control.dip_center_x;
+          center_z = 1.0 - E->control.dip_center_z;
+          tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
+          if (E->control.continent_lith)
+          {
+            if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
+            {
+              if (r1 >= 1.0 - E->viscosity.zcrust1)
+              {
+                E->C_phasefile_marker_int[0][node] = 4;
+              }
+              else if (r1 >= 1.0 - E->control.depth_harz)
+              {
+                E->C_phasefile_marker_int[0][node] = 5;
+              }
+              else if (r1 >= 1.0 - E->control.depth_continent_lith)
+              {
+                E->C_phasefile_marker_int[0][node] = 6;
+              }
+              else if (r1 >= E->viscosity.zlm)
+              {
+                E->C_phasefile_marker_int[0][node] = 0;
+              }
+            }
+          }
+          break;
+        case 50:
+          center_x = E->control.age_loc_left + E->control.dip_center_x;
+          center_z = 1.0 - E->control.dip_center_z;
+          tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
+          if (r1 < E->viscosity.zlm)
+          {
+            E->C_phasefile_marker_int[0][node] = 0;
+          }
+          if (E->control.continent_lith)
+          {
+            if (t1 >= E->control.continent_loc_left && t1 <= E->control.continent_loc_right)
+            {
+              if (r1 >= 1.0 - E->viscosity.zcrust1)
+              {
+                E->C_phasefile_marker_int[0][node] = 4;
+              }
+              else if (r1 >= 1.0 - E->control.depth_harz)
+              {
+                E->C_phasefile_marker_int[0][node] = 5;
+              }
+              else if (r1 >= 1.0 - E->control.depth_continent_lith)
+              {
+                E->C_phasefile_marker_int[0][node] = 6;
+              }
+              else if (r1 >= E->viscosity.zlm)
+              {
+                E->C_phasefile_marker_int[0][node] = 0;
+              }
+            }
+          }
+          break;
+        }
+
+        if (r1 >= 1.0 - E->control.depth_lith_margin)
+        {
+          if (E->control.initialCOption == 1)
+          {
+            center_x = E->control.age_loc_left;
+          }
+          if (t1 < center_x)
+          {
+            if (tempdist >= 0 && tempdist <= E->viscosity.zcrust1)
+            {
+              E->C12[node] = 1;
+              E->C_phasefile_marker_int[0][node] = 1;
+            }
+            else if (tempdist > E->viscosity.zcrust1 && tempdist <= E->control.depth_harz && r1 < 1.0 - E->viscosity.zcrust1)
+            {
+              E->C_phasefile_marker_int[0][node] = 2;
+            }
+            else if (tempdist > E->control.depth_harz && tempdist <= E->control.depth_ocean_lith && r1 < 1.0 - E->control.depth_harz)
+            {
+              E->C_phasefile_marker_int[0][node] = 3;
+            }
+          }
+        }
+      }
+    }
+  } while (node < E->advection.markers);
 
   E->advection.markers = node;
-
-  get_C_from_markers(E, E->C, E->CElement);
-  fprintf(stderr, "finish Cfrom markers\n");
+  //  fprintf(stderr, "before Cfrom markers\n");
+  get_C_from_markers(E, E->C);
+  //  fprintf(stderr, "finish Cfrom markers\n");
 
   if (E->control.phasefile_C || E->control.phasefile_Complete)
   {
@@ -706,10 +868,6 @@ void convection_initial_markers(E) struct All_variables *E;
       /* give place for old markers */
       E->C_phasefile_marker_int[1][i] = E->C_phasefile_marker_int[0][i];
     }
-  }
-  if (E->control.phasevisc_d)
-  {
-    get_Cphase_from_markers(E, E->d_node, E->d_marker, E->CElement);
   }
 
   return;
@@ -727,7 +885,7 @@ int lev;
   FILE *fp;
   double t1, t2, t3, t4, t5, t6;
 
-  sprintf(output_file, "%s/temp_comp.%d", E->convection.old_T_file, E->monitor.solution_cycles);
+  sprintf(output_file, "%s/temp_comp.%d.%d", E->convection.old_T_file, E->parallel.me, E->monitor.solution_cycles);
 
   fp = fopen(output_file, "r");
 
@@ -735,7 +893,7 @@ int lev;
   sscanf(input_s, "%d %d %lf", &i, &E->advection.timesteps, &E->monitor.elapsed_time);
   if (E->control.composition)
   {
-    for (i = 1; i <= E->mesh.NNO[lev]; i++)
+    for (i = 1; i <= E->lmesh.NNO[lev]; i++)
     {
       fgets(input_s, 200, fp);
       if (E->control.phasevisc_C)
@@ -745,7 +903,7 @@ int lev;
           sscanf(input_s, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf\n", &E->T[i], &E->C[i], &E->V[1][i], &E->V[2][i], &E->Vi[i], &E->Cdot[i], &E->Cphasedotnum[i], &E->Cphasedot[i], &E->Cphase_node[i], &E->d_node[i]);
         }
       }
-      else if (E->control.phasefile_C)
+      else if (E->control.phasefile_C || E->control.phasefile_Complete)
       {
         sscanf(input_s, "%lf %lf %lf %lf %lf %lf %lf %lf", &E->T[i], &E->C[i], &E->V[1][i], &E->V[2][i], &E->Vi[i], &E->C_phasefile_nno[0][i], &E->C_phasefile_nno[1][i], &E->C_phasefile_nno[2][i]);
       }
@@ -754,7 +912,7 @@ int lev;
       E->U[E->id[i].doff[1]] = t1;
       E->U[E->id[i].doff[2]] = t2;
     }
-    for (i = 1; i <= E->mesh.NEL[lev]; i++)
+    for (i = 1; i <= E->lmesh.NEL[lev]; i++)
     {
       fgets(input_s, 200, fp);
       sscanf(input_s, "%lf", &t1);
@@ -763,7 +921,7 @@ int lev;
   }
   else
   {
-    for (i = 1; i <= E->mesh.NNO[lev]; i++)
+    for (i = 1; i <= E->lmesh.NNO[lev]; i++)
     {
       fgets(input_s, 200, fp);
       sscanf(input_s, "%lf %lf %lf", &E->T[i], &t1, &t2);
@@ -771,7 +929,7 @@ int lev;
       E->U[E->id[i].doff[2]] = t2;
       E->C[i] = 0;
     }
-    for (i = 1; i <= E->mesh.NEL[lev]; i++)
+    for (i = 1; i <= E->lmesh.NEL[lev]; i++)
     {
       fgets(input_s, 200, fp);
       sscanf(input_s, "%lf", &t1);
@@ -795,9 +953,10 @@ void process_restart_mk(E) struct All_variables *E;
   char input_s[200], output_file[255], in_file[255];
   FILE *fp;
   double t1;
+  const int nel = E->lmesh.nel;
   void get_C_from_markers();
   void get_C_from_markers_multi();
-  sprintf(output_file, "%s/traces.%d", E->convection.old_T_file, E->monitor.solution_cycles);
+  sprintf(output_file, "%s/traces.%d.%d", E->convection.old_T_file, E->parallel.me, E->monitor.solution_cycles);
 
   fp = fopen(output_file, "r");
 
@@ -815,12 +974,12 @@ void process_restart_mk(E) struct All_variables *E;
     }
     else if (E->control.phasefile_C || E->control.phasefile_Complete)
     {
-      sscanf(input_s, "%lf %lf %d %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->C_phasefile_marker_int[0][i]);
+      sscanf(input_s, "%lf %lf %d %d %d %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->C_phasefile_marker_int[0][i], &E->C_phasefile_marker_int[2][i], &E->C_phasefile_marker_int[3][i]);
     }
     else
       sscanf(input_s, "%lf %lf %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i]);
   }
-  for (i = 1; i <= E->mesh.nel; i++)
+  for (i = 1; i <= nel; i++)
   {
     fgets(input_s, 200, fp);
     if (E->control.phasevisc_C)
@@ -834,7 +993,7 @@ void process_restart_mk(E) struct All_variables *E;
 
   E->advection.timesteps = E->monitor.solution_cycles;
 
-  get_C_from_markers(E, E->C, E->CElement);
+  get_C_from_markers(E, E->C);
   if (E->control.phasefile_C || E->control.phasefile_Complete)
   {
     get_C_from_markers_multi(E, E->C_phasefile_marker_int[0], E->C_phasefile_nno, E->C_phasefile_element, 0, E->control.phasefile_C_flavor, E->CElement);

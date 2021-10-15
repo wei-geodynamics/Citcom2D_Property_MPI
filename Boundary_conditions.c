@@ -97,7 +97,7 @@ void velocity_boundary_conditions(E) struct All_variables *E;
           /*overshoot*/
           if (E->X[1][node] >= loc_mid - E->control.velo_surf_loc_left_overshoot)
           {
-            E->VB[1][node] += E->control.velo_surf_mag_left * sin((E->X[1][node] - loc_mid + E->control.velo_surf_loc_left_overshoot) / E->control.velo_surf_loc_left_overshoot * 3.141592653);
+            E->VB[1][node] += E->control.velo_surf_mag_left * sin((E->X[1][node] - loc_mid + E->control.velo_surf_loc_left_overshoot) / E->control.velo_surf_loc_left_overshoot * M_PI);
           }
         }
         /* then right part*/
@@ -272,51 +272,32 @@ void velocity_refl_vert_bc(E) struct All_variables *E;
 {
   int i, j, ii, jj;
   int node1, node2;
-  int level, nox, noy, noz;
+  int level;
   const int dims = E->mesh.nsd;
-
+  int nox = E->lmesh.nox;
+  int noz = E->lmesh.noz;
+  int noy = E->lmesh.noy;
   /* for two YOZ planes if 3-D, or two OZ side walls for 2-D */
   if (E->parallel.me_loc[1] == 0 || E->parallel.me_loc[1] == E->parallel.nprocx - 1)
-    for (j = 1; j <= E->lmesh.noy; j++)
-      for (i = 1; i <= E->lmesh.noz; i++)
+    for (j = 1; j <= noy; j++)
+      for (i = 1; i <= noz; i++)
       {
-        node1 = i + (j - 1) * E->lmesh.noz * E->lmesh.nox;
-        node2 = node1 + (E->lmesh.nox - 1) * E->lmesh.noz;
-
-        E->VB[1][node1] = 0.0;
-        E->VB[1][node2] = 0.0;
-        if ((i != 1) && (i != E->lmesh.noz))
+        node1 = i + (j - 1) * noz * nox;
+        node2 = node1 + (nox - 1) * noz;
+        ii = i + E->lmesh.nzs - 1;
+        if (E->parallel.me_loc[1] == 0)
         {
-          E->VB[2][node1] = 0.0;
-          E->VB[2][node2] = 0.0;
+          E->VB[1][node1] = 0.0;
+          if ((ii != 1) && (ii != E->mesh.noz))
+            E->VB[2][node1] = 0.0;
+        }
+        if (E->parallel.me_loc[1] == E->parallel.nprocx - 1)
+        {
+          E->VB[1][node2] = 0.0;
+          if ((ii != 1) && (ii != E->mesh.noz))
+            E->VB[2][node2] = 0.0;
         }
       } /* end loop for i and j */
-
-  /* for two XOZ planes if 3-D */
-
-  if (E->mesh.nsd == 3)
-  {
-    if (E->parallel.me_loc[2] == 0 || E->parallel.me_loc[2] == E->parallel.nprocy - 1)
-      for (j = 1; j <= E->lmesh.nox; j++)
-        for (i = 1; i <= E->lmesh.noz; i++)
-        {
-          node1 = i + (j - 1) * E->lmesh.noz;
-          node2 = node1 + (E->lmesh.noy - 1) * E->lmesh.noz * E->lmesh.nox;
-          if (E->mesh.nsd == 3)
-          {
-            E->VB[3][node2] = 0.0;
-            E->VB[3][node1] = 0.0;
-          }
-
-          if ((i != 1) && (i != E->lmesh.noz))
-          {
-            E->VB[2][node2] = 0.0;
-            E->VB[2][node1] = 0.0;
-          }
-
-        } /* end of loop i & j */
-
-  } /* end of if */
 
   /* all vbc's apply at all levels  */
   for (level = E->mesh.levmax; level >= E->mesh.levmin; level--)
@@ -330,70 +311,30 @@ void velocity_refl_vert_bc(E) struct All_variables *E;
         {
           node1 = i + (j - 1) * noz * nox;
           node2 = node1 + (nox - 1) * noz;
-          E->NODE[level][node1] = E->NODE[level][node1] | VBX;
-          E->NODE[level][node1] = E->NODE[level][node1] & (~SBX);
-          if ((i != 1) && (i != noz))
+          ii = i + E->lmesh.NZS[level] - 1;
+          if (E->parallel.me_loc[1] == 0)
           {
-            E->NODE[level][node1] = E->NODE[level][node1] & (~VBY);
-            E->NODE[level][node1] = E->NODE[level][node1] | SBY;
-            E->NODE[level][node1] = E->NODE[level][node1] & (~VBZ);
-            E->NODE[level][node1] = E->NODE[level][node1] | SBZ;
+            E->NODE[level][node1] = E->NODE[level][node1] & (~SBX);
+            E->NODE[level][node1] = E->NODE[level][node1] | VBX;
+            if ((ii != 1) && (ii != E->mesh.NOZ[level]))
+            {
+              E->NODE[level][node1] = E->NODE[level][node1] & (~VBZ);
+              E->NODE[level][node1] = E->NODE[level][node1] | SBZ;
+            }
           }
-          E->NODE[level][node2] = E->NODE[level][node2] | VBX;
-          E->NODE[level][node2] = E->NODE[level][node2] & (~SBX);
-          if ((i != 1) && (i != noz))
+          if (E->parallel.me_loc[1] == E->parallel.nprocx - 1)
           {
-            E->NODE[level][node2] = E->NODE[level][node2] & (~VBY);
-            E->NODE[level][node2] = E->NODE[level][node2] | SBY;
-            E->NODE[level][node2] = E->NODE[level][node2] & (~VBZ);
-            E->NODE[level][node2] = E->NODE[level][node2] | SBZ;
+            E->NODE[level][node2] = E->NODE[level][node2] & (~SBX);
+            E->NODE[level][node2] = E->NODE[level][node2] | VBX;
+            if ((ii != 1) && (ii != E->mesh.NOZ[level]))
+            {
+              E->NODE[level][node2] = E->NODE[level][node2] & (~VBZ);
+              E->NODE[level][node2] = E->NODE[level][node2] | SBZ;
+            }
           }
+
         } /* end for loop i & j */
-
-    if (E->mesh.nsd == 3)
-    {
-      if (E->parallel.me_loc[2] == 0 || E->parallel.me_loc[2] == E->parallel.nprocy - 1)
-        for (j = 1; j <= nox; j++)
-          for (i = 1; i <= noz; i++)
-          {
-            node1 = i + (j - 1) * noz;
-            node2 = node1 + (noy - 1) * noz * nox;
-            ii = i + E->lmesh.NZS[level] - 1;
-            jj = j + E->lmesh.NXS[level] - 1;
-            if (E->parallel.me_loc[2] == 0)
-            {
-              E->NODE[level][node1] = E->NODE[level][node1] | VBY;
-              E->NODE[level][node1] = E->NODE[level][node1] & (~SBY);
-              if ((ii != 1) && (ii != E->mesh.NOZ[level]))
-              {
-                E->NODE[level][node1] = E->NODE[level][node1] & (~VBZ);
-                E->NODE[level][node1] = E->NODE[level][node1] | SBZ;
-              }
-              if ((jj != 1) && (jj != E->mesh.NOX[level]) && (ii != 1) && (ii != E->mesh.NOZ[level]))
-              {
-                E->NODE[level][node1] = E->NODE[level][node1] & (~VBX);
-                E->NODE[level][node1] = E->NODE[level][node1] | SBX;
-              }
-            }
-            if (E->parallel.me_loc[2] == E->parallel.nprocy - 1)
-            {
-              E->NODE[level][node2] = E->NODE[level][node2] | VBY;
-              E->NODE[level][node2] = E->NODE[level][node2] & (~SBY);
-              if ((ii != 1) && (ii != E->mesh.NOZ[level]))
-              {
-                E->NODE[level][node2] = E->NODE[level][node2] & (~VBZ);
-                E->NODE[level][node2] = E->NODE[level][node2] | SBZ;
-              }
-              if ((jj != 1) && (jj != E->mesh.NOX[level]) && (ii != 1) && (ii != E->mesh.NOZ[level]))
-              {
-                E->NODE[level][node2] = E->NODE[level][node2] & (~VBX);
-                E->NODE[level][node2] = E->NODE[level][node2] | SBX;
-              }
-            }
-          } /* end for loop i & j  */
-
-    } /* end for if dims=3 */
-  }   /* end for loop level */
+  }       /* end for loop level */
 
   return;
 }
@@ -404,42 +345,29 @@ void temperature_refl_vert_bc(E) struct All_variables *E;
   int i, j;
   int node1, node2;
   const int dims = E->mesh.nsd;
-
+  int nox = E->lmesh.nox;
+  int noz = E->lmesh.noz;
+  int noy = E->lmesh.noy;
   /* Temps and bc-values  at top level only */
   if (E->parallel.me_loc[1] == 0 || E->parallel.me_loc[1] == E->parallel.nprocx - 1)
-    for (j = 1; j <= E->lmesh.noy; j++)
-      for (i = 1; i <= E->lmesh.noz; i++)
+    for (j = 1; j <= noy; j++)
+      for (i = 1; i <= noz; i++)
       {
-        node1 = i + (j - 1) * E->mesh.noz * E->mesh.nox;
-        node2 = node1 + (E->mesh.nox - 1) * E->mesh.noz;
-        E->node[node1] = E->node[node1] & (~TBX);
-        E->node[node1] = E->node[node1] | FBX;
-        E->TB[1][node1] = 0.0;
-        E->node[node2] = E->node[node2] & (~TBX);
-        E->node[node2] = E->node[node2] | FBX;
-        E->TB[1][node2] = 0.0;
-      } /* end for loop i & j */
-
-  if (E->mesh.nsd == 3)
-  {
-    if (E->parallel.me_loc[2] == 0 || E->parallel.me_loc[2] == E->parallel.nprocy - 1)
-      for (j = 1; j <= E->lmesh.nox; j++)
-        for (i = 1; i <= E->lmesh.noz; i++)
+        node1 = i + (j - 1) * noz * nox;
+        node2 = node1 + (nox - 1) * noz;
+        if (E->parallel.me_loc[1] == 0)
         {
-          node1 = i + (j - 1) * E->lmesh.noz;
-          E->node[node1] = E->node[node1] & (~TBY);
-          E->node[node1] = E->node[node1] | FBY;
-          E->TB[3][node1] = 0.0;
+          E->node[node1] = E->node[node1] & (~TBX);
+          E->node[node1] = E->node[node1] | FBX;
+          E->TB[1][node1] = 0.0;
         }
-    for (j = 1; j <= E->lmesh.nox; j++)
-      for (i = 1; i <= E->lmesh.noz; i++)
-      {
-        node2 = i + (j - 1) * E->lmesh.noz + (E->lmesh.noy - 1) * E->lmesh.noz * E->lmesh.nox;
-        E->node[node2] = E->node[node2] & (~TBY);
-        E->node[node2] = E->node[node2] | FBY;
-        E->TB[3][node2] = 0.0;
-      } /* end loop for i and j */
-  }     /* end for if ==3    */
+        if (E->parallel.me_loc[1] == E->parallel.nprocx - 1)
+        {
+          E->node[node2] = E->node[node2] & (~TBX);
+          E->node[node2] = E->node[node2] | FBX;
+          E->TB[1][node2] = 0.0;
+        }
+      } /* end for loop i & j */
 
   return;
 }
@@ -450,41 +378,30 @@ void composition_refl_vert_bc(E) struct All_variables *E;
   int i, j;
   int node1, node2;
   const int dims = E->mesh.nsd;
-
+  int nox = E->lmesh.nox;
+  int noz = E->lmesh.noz;
+  int noy = E->lmesh.noy;
   /* Temps and bc-values  at top level only */
-
-  for (j = 1; j <= E->mesh.noy; j++)
-    for (i = 1; i <= E->mesh.noz; i++)
-    {
-      node1 = i + (j - 1) * E->lmesh.noz * E->lmesh.nox;
-      node2 = node1 + (E->lmesh.nox - 1) * E->lmesh.noz;
-      E->node[node1] = E->node[node1] & (~CBX);
-      E->node[node1] = E->node[node1] | HBX;
-      E->CB[1][node1] = 0.0;
-      E->node[node2] = E->node[node2] & (~CBX);
-      E->node[node2] = E->node[node2] | HBX;
-      E->CB[1][node2] = 0.0;
-    } /* end for loop i & j */
-
-  if (E->mesh.nsd == 3)
-  {
-    for (j = 1; j <= E->lmesh.nox; j++)
-      for (i = 1; i <= E->lmesh.noz; i++)
+  if (E->parallel.me_loc[1] == 0 || E->parallel.me_loc[1] == E->parallel.nprocx - 1)
+    for (j = 1; j <= noy; j++)
+      for (i = 1; i <= noz; i++)
       {
-        node1 = i + (j - 1) * E->mesh.noz;
-        E->node[node1] = E->node[node1] & (~CBY);
-        E->node[node1] = E->node[node1] | HBY;
-        E->CB[3][node1] = 0.0;
-      }
-    for (j = 1; j <= E->lmesh.nox; j++)
-      for (i = 1; i <= E->lmesh.noz; i++)
-      {
-        node2 = i + (j - 1) * E->lmesh.noz + (E->lmesh.noy - 1) * E->lmesh.noz * E->lmesh.nox;
-        E->node[node2] = E->node[node2] & (~CBY);
-        E->node[node2] = E->node[node2] | HBY;
-        E->CB[3][node2] = 0.0;
-      } /* end loop for i and j */
-  }     /* end for if ==3    */
+
+        node1 = i + (j - 1) * noz * nox;
+        node2 = node1 + (nox - 1) * noz;
+        if (E->parallel.me_loc[1] == 0)
+        {
+          E->node[node1] = E->node[node1] & (~CBX);
+          E->node[node1] = E->node[node1] | HBX;
+          E->CB[1][node1] = 0.0;
+        }
+        if (E->parallel.me_loc[1] == E->parallel.nprocx - 1)
+        {
+          E->node[node2] = E->node[node2] & (~CBX);
+          E->node[node2] = E->node[node2] | HBX;
+          E->CB[1][node2] = 0.0;
+        }
+      } /* end for loop i & j */
 
   return;
 }
@@ -513,7 +430,7 @@ int level;
   else
     rowl = E->lmesh.NOZ[level];
 
-  if (ROW == 1 && E->parallel.me_loc[3] == 0 || ROW == E->mesh.NOZ[level] && E->parallel.me_loc[3] == E->parallel.nprocz - 1)
+  if (ROW == 1 && E->parallel.me_loc[2] == 0 || ROW == E->mesh.NOZ[level] && E->parallel.me_loc[2] == E->parallel.nprocz - 1)
   {
 
     /* turn bc marker to zero */
@@ -577,10 +494,10 @@ int level;
   int i;
   const int dims = E->mesh.nsd;
 
-  for (i = 1; i <= E->mesh.NNO[level]; i++)
+  for (i = 1; i <= E->lmesh.NNO[level]; i++)
   {
-    if (E->NODE[level][i] & OFFSIDE)
-      continue;
+    /*if (E->NODE[level][i] & OFFSIDE)
+      continue;*/
     if ((E->NODE[level][i] & VBX) != 0)
       Res[E->ID[level][i].doff[1]] = 0.0;
     if ((E->NODE[level][i] & VBZ) != 0)
@@ -596,12 +513,12 @@ void temperatures_conform_bcs(E) struct All_variables *E;
 {
   int node;
   unsigned int type;
-
-  for (node = 1; node <= E->lmesh.nno; node++)
+  const int nno = E->lmesh.nno;
+  for (node = 1; node <= nno; node++)
   {
-    if (E->node[node] & OFFSIDE)
+    /*if (E->node[node] & OFFSIDE)
       continue;
-
+*/
     type = (E->node[node] & (TBX | TBZ | TBY));
 
     switch (type)
@@ -649,16 +566,17 @@ double *U;
 
   const int dofs = E->mesh.dof;
   const int nno = E->lmesh.nno;
+  const int nox = E->lmesh.nox;
+  const int noz = E->lmesh.noz;
   int age_run, newnum, tempint;
   double *velosurf;
   char tempstring[255], input_s[255];
   FILE *fp_read;
   int keep_going, velonum;
   double loc_mid;
-
-  if (E->control.imposevelo)
+  if (E->control.imposevelo && E->parallel.me_loc[2] == E->parallel.nprocz - 1)
   {
-    velosurf = (double *)malloc((E->mesh.nox + 3) * sizeof(double));
+    velosurf = (double *)malloc((nox + 3) * sizeof(double));
 
     age_run = (int)(E->monitor.elapsed_time * E->control.timescale);
 
@@ -679,16 +597,16 @@ double *U;
       {
         velonum++;
         sscanf(input_s, "%d %lf", &tempint, &velosurf[velonum]);
-        E->VB[1][velonum * E->lmesh.noz] = velosurf[velonum];
+        E->VB[1][velonum * noz] = velosurf[velonum];
         if (velonum <= 5)
-          E->VB[1][velonum * E->lmesh.noz] = tanh((E->X[1][velonum * E->lmesh.noz])) * velosurf[velonum];
+          E->VB[1][velonum * noz] = tanh((E->X[1][velonum * noz])) * velosurf[velonum];
       }
     }
-    for (newnum = velonum + 1; newnum <= E->lmesh.nox; newnum++)
+    for (newnum = velonum + 1; newnum <= nox; newnum++)
     {
-      E->VB[1][E->lmesh.noz * newnum] = velosurf[velonum];
-      if (newnum >= E->lmesh.nox - 5)
-        E->VB[1][newnum * E->lmesh.noz] = tanh((E->mesh.layer[1] - E->X[1][E->lmesh.noz * newnum])) * velosurf[velonum];
+      E->VB[1][noz * newnum] = velosurf[velonum];
+      if (newnum >= nox - 5)
+        E->VB[1][newnum * noz] = tanh((E->mesh.layer[1] - E->X[1][noz * newnum])) * velosurf[velonum];
     }
 
   } /*end of reading velofile*/
@@ -699,10 +617,11 @@ double *U;
     {
       loc_mid = E->control.velo_surf_loc_mid;
       loc_mid += E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale;
-      printf("loc_mid=%lf E->control.velo_surf_loc_mid_rate*E->monitor.elapsed_time*E->control.timescale=%lf\n", loc_mid, E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale);
-      for (newnum = 1; newnum <= E->lmesh.nox; newnum++)
+      if (E->parallel.me == E->parallel.nprocz - 1)
+        fprintf(stderr, "loc_mid=%lf E->control.velo_surf_loc_mid_rate*E->monitor.elapsed_time*E->control.timescale=%lf\n", loc_mid, E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale);
+      for (newnum = 1; newnum <= nox; newnum++)
       {
-        node = newnum * E->lmesh.noz;
+        node = newnum * noz;
         /*first left part */
         if (E->X[1][node] <= loc_mid)
         {
@@ -710,7 +629,7 @@ double *U;
           /*overshoot*/
           if (E->X[1][node] >= loc_mid - E->control.velo_surf_loc_left_overshoot)
           {
-            E->VB[1][node] += E->control.velo_surf_mag_left * sin((E->X[1][node] - loc_mid + E->control.velo_surf_loc_left_overshoot) / E->control.velo_surf_loc_left_overshoot * 3.141592653);
+            E->VB[1][node] += E->control.velo_surf_mag_left * sin((E->X[1][node] - loc_mid + E->control.velo_surf_loc_left_overshoot) / E->control.velo_surf_loc_left_overshoot * M_PI);
           }
         }
         /* then right part*/
@@ -735,8 +654,6 @@ double *U;
 
   for (node = 1; node <= nno; node++)
   {
-    if (E->node[node] & OFFSIDE)
-      continue;
 
     if (E->node[node] & typex)
       U[E->id[node].doff[1]] = E->VB[1][node];

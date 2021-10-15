@@ -10,7 +10,7 @@
 #else
 #include <string.h>
 #endif
-
+#include <mpi.h>
 #include "element_definitions.h"
 #include "global_defs.h"
 void output_velo_related(E, file_number) struct All_variables *E;
@@ -35,9 +35,9 @@ int file_number;
   void frames_for_dx();
   void return_horiz_ave();
   void output_phasefile();
-
-  const int nno = E->mesh.nno;
-
+  void visc_from_gint_to_nodes();
+  const int nno = E->lmesh.nno;
+  int num1, num2;
   if (been_here == 0)
     SV = (double *)malloc((nno + 1) * sizeof(double));
 
@@ -45,10 +45,10 @@ int file_number;
   {
     been_here++;
 
-    sprintf(output_file, "%s/coord.%d", E->control.data_file, file_number);
+    sprintf(output_file, "%s/coord.%d", E->control.data_file, E->parallel.me);
     fp0 = fopen(output_file, "w");
     fprintf(fp0, "%6d %6d %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
-    for (i = 1; i <= E->mesh.nno; i++)
+    for (i = 1; i <= E->lmesh.nno; i++)
       fprintf(fp0, "%6d %.3e %.3e %.5e %.5e %.5e %.5e %.4e\n", i, E->X[1][i], E->X[2][i], E->V[1][i], E->V[2][i], E->T[i], E->C[i], E->Vi[i]);
     fclose(fp0);
   }
@@ -56,15 +56,15 @@ int file_number;
   if ((E->advection.timesteps % (E->control.record_every)) == 0)
   {
 
-    sprintf(output_file, "%s/temp_comp.%d", E->control.data_file, file_number);
+    sprintf(output_file, "%s/temp_comp.%d.%d", E->control.data_file, E->parallel.me, file_number);
     fp0 = fopen(output_file, "w");
 
-    fprintf(fp0, "%6d %6d %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
+    fprintf(fp0, "%6d %6d %.5e\n", E->lmesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
     if (E->control.composition)
     {
       if ((E->advection.timesteps % (1 * E->control.record_every)) == 0)
       {
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= E->lmesh.nno; i++)
         {
           if (E->control.phasevisc_C)
           {
@@ -82,24 +82,24 @@ int file_number;
             fprintf(fp0, "%.4e %.4e %.4e %.4e %.4e\n", E->T[i], E->C[i], E->V[1][i], E->V[2][i], E->Vi[i]);
           }
         }
-        for (i = 1; i <= E->mesh.nel; i++)
+        for (i = 1; i <= E->lmesh.nel; i++)
           fprintf(fp0, "%.4e\n", E->P[i]);
       }
       else
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= E->lmesh.nno; i++)
           fprintf(fp0, "%.4e %.4e %.4e\n", E->T[i], E->C[i], E->Vi[i]);
     }
     else
     {
       if ((E->advection.timesteps % (E->control.record_every)) == 0)
       {
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= E->lmesh.nno; i++)
           fprintf(fp0, "%.4e %.4e %.4e %.4e\n", E->T[i], E->V[1][i], E->V[2][i], E->Vi[i]);
-        for (i = 1; i <= E->mesh.nel; i++)
+        for (i = 1; i <= E->lmesh.nel; i++)
           fprintf(fp0, "%.4e\n", E->P[i]);
       }
       else
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= E->lmesh.nno; i++)
           fprintf(fp0, "%.4e %.4e\n", E->T[i], E->Vi[i]);
     }
 
@@ -108,9 +108,12 @@ int file_number;
 
   if (E->control.composition && (E->advection.timesteps % (1 * E->control.record_every)) == 0)
   {
-    sprintf(output_file, "%s/traces.%d", E->control.data_file, file_number);
+    sprintf(output_file, "%s/traces.%d.%d", E->control.data_file, E->parallel.me, file_number);
     fp0 = fopen(output_file, "w");
-    fprintf(fp0, "%6d %6d %.5e\n", E->advection.markers, E->advection.timesteps, E->monitor.elapsed_time);
+    num1 = E->advection.markers;
+    MPI_Allreduce(&num1, &num2, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    fprintf(fp0, "%d %d %d %.5e\n", E->advection.markers, num2, E->advection.timesteps, E->monitor.elapsed_time);
     for (i = 1; i <= E->advection.markers; i++)
     {
       // fprintf(fp0,"%.5e %.5e %d %d\n",E->XMC[1][i],E->XMC[2][i],E->CElement[i],E->C12[i]);
@@ -128,7 +131,7 @@ int file_number;
       else
         fprintf(fp0, "%.5e %.5e %d %d\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i]);
     }
-    for (i = 1; i <= E->mesh.nel; i++)
+    for (i = 1; i <= E->lmesh.nel; i++)
     {
       //      fprintf(fp0,"%.4e\n",E->CE[i]);
       if (E->control.phasevisc_C)
@@ -150,27 +153,28 @@ int file_number;
 
     surf = 0.0;
     botm = 0.0;
-    for (i = 1; i <= E->mesh.nox; i++)
+    for (i = 1; i <= E->lmesh.nox; i++)
     {
-      j = i * E->mesh.noz;
+      j = i * E->lmesh.noz;
       if (i > 1)
       {
         surf += (E->slice.shflux[i] + E->slice.shflux[i - 1]) * 0.5 *
-                (E->X[1][j] - E->X[1][j - E->mesh.noz]);
+                (E->X[1][j] - E->X[1][j - E->lmesh.noz]);
         botm += (E->slice.bhflux[i] + E->slice.bhflux[i - 1]) * 0.5 *
-                (E->X[1][j] - E->X[1][j - E->mesh.noz]);
+                (E->X[1][j] - E->X[1][j - E->lmesh.noz]);
       }
     }
-    surf = surf / E->X[1][E->mesh.nno];
-    botm = botm / E->X[1][E->mesh.nno];
+    surf = surf / E->X[1][E->lmesh.nno];
+    botm = botm / E->X[1][E->lmesh.nno];
 
-    for (i = 1; i <= E->mesh.nno; i++)
+    for (i = 1; i <= E->lmesh.nno; i++)
       SV[i] = sqrt(E->V[1][i] * E->V[1][i] + E->V[2][i] * E->V[2][i]);
 
     return_horiz_ave(E, SV, E->Have.vrms);
     return_horiz_ave(E, E->Vi, E->Have.Vi);
     return_horiz_ave(E, E->T, E->Have.T);
-    return_horiz_ave(E, E->C, E->Have.Rho);
+    if (E->control.composition)
+      return_horiz_ave(E, E->C, E->Have.Rho);
 
     sprintf(output_file, "%s/geoid.%d", E->control.data_file, file_number);
     fp1 = fopen(output_file, "w");
@@ -181,37 +185,37 @@ int file_number;
     }
     fclose(fp1);
 
-    sprintf(output_file, "%s/topo_hf.%d", E->control.data_file, file_number);
+    sprintf(output_file, "%s/topo_hf.%d.%d", E->control.data_file, E->parallel.me, file_number);
     fp1 = fopen(output_file, "w");
 
-    fprintf(fp1, "%6d %6d %.5e %.5e %.5e %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time, surf, botm, E->rad_heat.total);
-    for (i = 1; i <= E->mesh.noz; i++)
+    fprintf(fp1, "%6d %6d %.5e %.5e %.5e %.5e\n", E->lmesh.nno, E->advection.timesteps, E->monitor.elapsed_time, surf, botm, E->rad_heat.total);
+    for (i = 1; i <= E->lmesh.noz; i++)
       fprintf(fp1, "%.4e %.5e %.5e %.5e %.5e\n", E->X[2][i], E->Have.T[i], E->Have.Rho[i], E->Have.Vi[i], E->Have.vrms[i]);
-    for (i = 1; i <= E->mesh.nox; i++)
+    for (i = 1; i <= E->lmesh.nox; i++)
     {
-      j = i * E->mesh.noz;
+      j = i * E->lmesh.noz;
       fprintf(fp1, "%.4e %.5e %.5e %.5e %.5e\n", E->X[1][j], E->slice.tpg[i], E->slice.tpgb[i], E->slice.shflux[i], E->slice.bhflux[i]);
     }
 
     fclose(fp1);
     /*  ouput strainrate */
-    eedot = (double *)malloc((2 + E->mesh.nel) * sizeof(double));
+    eedot = (double *)malloc((2 + E->lmesh.nel) * sizeof(double));
     nedot = (double *)malloc((2 + nno) * sizeof(double));
-    eedot11 = (double *)malloc((2 + E->mesh.nel) * sizeof(double));
+    eedot11 = (double *)malloc((2 + E->lmesh.nel) * sizeof(double));
     nedot11 = (double *)malloc((2 + nno) * sizeof(double));
-    eedot22 = (double *)malloc((2 + E->mesh.nel) * sizeof(double));
+    eedot22 = (double *)malloc((2 + E->lmesh.nel) * sizeof(double));
     nedot22 = (double *)malloc((2 + nno) * sizeof(double));
-    eedot12 = (double *)malloc((2 + E->mesh.nel) * sizeof(double));
+    eedot12 = (double *)malloc((2 + E->lmesh.nel) * sizeof(double));
     nedot12 = (double *)malloc((2 + nno) * sizeof(double));
 
-    edot = (double *)malloc((E->mesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
-    edot11 = (double *)malloc((E->mesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
-    edot22 = (double *)malloc((E->mesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
-    edot12 = (double *)malloc((E->mesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
+    edot = (double *)malloc((E->lmesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
+    edot11 = (double *)malloc((E->lmesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
+    edot22 = (double *)malloc((E->lmesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
+    edot12 = (double *)malloc((E->lmesh.NEL[E->mesh.levmax] + 2) * vpoints[E->mesh.nsd] * sizeof(double));
 
     strain_rate_2_inv_moreout(E, eedot, eedot11, eedot22, eedot12, 1);
 
-    for (i = 1; i <= E->mesh.nel; i++)
+    for (i = 1; i <= E->lmesh.nel; i++)
     {
       temp = eedot[i];
       temp11 = eedot11[i];
@@ -229,12 +233,12 @@ int file_number;
         edot12[(i - 1) * vpoints[E->mesh.nsd] + jj] = temp12;
       }
     }
-    v_to_nodes(E, edot, nedot, E->mesh.levmax);
-    v_to_nodes(E, edot11, nedot11, E->mesh.levmax);
-    v_to_nodes(E, edot22, nedot22, E->mesh.levmax);
-    v_to_nodes(E, edot12, nedot12, E->mesh.levmax);
+    visc_from_gint_to_nodes(E, edot, nedot, E->mesh.levmax);
+    visc_from_gint_to_nodes(E, edot11, nedot11, E->mesh.levmax);
+    visc_from_gint_to_nodes(E, edot22, nedot22, E->mesh.levmax);
+    visc_from_gint_to_nodes(E, edot12, nedot12, E->mesh.levmax);
 
-    sprintf(output_file, "%s/strainrate.%d", E->control.data_file, file_number);
+    sprintf(output_file, "%s/strainrate.%d.%d", E->control.data_file, E->parallel.me, file_number);
     fp1 = fopen(output_file, "w");
 
     for (n = 1; n <= nno; n++)
@@ -267,7 +271,7 @@ int file_number;
   char output_file[255];
   static int been_here = 0;
 
-  const int nno = E->mesh.nno;
+  const int nno = E->lmesh.nno;
 
   if (been_here == 0)
   {
@@ -276,11 +280,11 @@ int file_number;
     been_here++;
   }
 
-  fprintf(fp0, "%6d %6d %.5e\n", E->mesh.nox, E->advection.timesteps, E->monitor.elapsed_time);
-  for (i = 1; i <= E->mesh.nox; i++)
+  fprintf(fp0, "%6d %6d %.5e\n", E->lmesh.nox, E->advection.timesteps, E->monitor.elapsed_time);
+  for (i = 1; i <= E->lmesh.nox; i++)
   {
-    n1 = (i - 1) * E->mesh.noz + E->control.PLUME;
-    n2 = (i - 1) * E->mesh.noz + E->control.SLAB;
+    n1 = (i - 1) * E->lmesh.noz + E->control.PLUME;
+    n2 = (i - 1) * E->lmesh.noz + E->control.SLAB;
     fprintf(fp0, "%.4e %.4e %.4e %.4e\n", E->T[n1], E->T[n2], E->V[1][n1], E->V[1][n2]);
   }
   fflush(fp0);
@@ -297,7 +301,7 @@ int file_number;
   static int been_here = 0;
   int m, n, l, num, number1, number2, number3, number4, count_mineral, count_mat, temp_num_mineral;
   int left, right, mid;
-  const int nno = E->mesh.nno;
+  const int nno = E->lmesh.nno;
   int mark_P, mark_T, mark_P0_PREM = 160, mark_P_PREM;
   double coord_x, coord_z, temp, comp, coord_x_km, coord_z_km, T_C, P_GPa;
   double delta, delta1, delta2, delta_P, delta_T, delta_1, delta_2, delta_3, delta_4;
@@ -308,7 +312,7 @@ int file_number;
   double den_mineral[100], Vp_mineral[100], Vs_mineral[100];
   if (!been_here)
   {
-    for (n = 1; n <= E->mesh.noz; n++)
+    for (n = 1; n <= E->lmesh.noz; n++)
     {
       mark_P_store[n] = E->control.phasefile_noP;
       mark_P_PREM_store[n] = mark_P0_PREM;
@@ -316,7 +320,7 @@ int file_number;
     mark_P = E->control.phasefile_noP;
     mark_P_PREM = mark_P0_PREM;
 
-    for (n = 1; n <= E->mesh.noz; n++)
+    for (n = 1; n <= E->lmesh.noz; n++)
     {
       num = n;
       coord_x = E->X[1][num];
@@ -346,32 +350,32 @@ int file_number;
           break;
         }
       }
-      if (n == E->mesh.noz)
+      if (n == E->lmesh.noz && E->parallel.me_loc[2] == E->parallel.nprocz - 1)
       {
         mark_P_PREM_store[n] = 2;
         mark_P_store[n] = 2;
       }
 
       mark_P = mark_P_store[n];
-      fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
+//      fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
     }
     been_here++;
   }
 
   //  if (been_here==0)  {
-  sprintf(output_file, "%s/phasefile_all.%d", E->control.data_file, file_number);
+  sprintf(output_file, "%s/phasefile_all.%d.%d", E->control.data_file, file_number, E->parallel.me);
   fp0 = fopen(output_file, "w");
   //    been_here++;
   //   }
-  fprintf(fp0, "%6d %6d %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
-  for (m = 1; m <= E->mesh.nox; m++)
+  fprintf(fp0, "%6d %6d %.5e\n", E->lmesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
+  for (m = 1; m <= E->lmesh.nox; m++)
   {
     mark_P = E->control.phasefile_noP;
     mark_T = E->control.phasefile_noT;
     mark_P_PREM = mark_P0_PREM;
-    for (n = 1; n <= E->mesh.noz; n++)
+    for (n = 1; n <= E->lmesh.noz; n++)
     {
-      num = n + E->mesh.noz * (m - 1);
+      num = n + E->lmesh.noz * (m - 1);
       mark_P = mark_P_store[n];
       mark_P_PREM = mark_P_PREM_store[n];
 
@@ -546,13 +550,13 @@ void coordinates_dx(E) struct All_variables *E;
 
   int i;
 
-  E->ibm_dx.x1 = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-  E->ibm_dx.x2 = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
+  E->ibm_dx.x1 = (double *)malloc((E->lmesh.nno + 1) * sizeof(double));
+  E->ibm_dx.x2 = (double *)malloc((E->lmesh.nno + 1) * sizeof(double));
 
-  E->ibm_dx.nox = E->mesh.nox;
-  E->ibm_dx.noz = E->mesh.noz;
+  E->ibm_dx.nox = E->lmesh.nox;
+  E->ibm_dx.noz = E->lmesh.noz;
 
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
   {
     E->ibm_dx.x1[i] = E->X[2][i] * sin(E->X[1][i]);
     E->ibm_dx.x2[i] = E->X[2][i] * cos(E->X[1][i]);
@@ -577,13 +581,13 @@ int file_number;
 
   sprintf(output_file, "%s/mv.%03d.dx", E->control.data_file, nframe);
   fp = fopen(output_file, "w");
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
     fprintf(fp, "%.4e %.4e %.4e\n", E->ibm_dx.x1[i] + offset1, E->ibm_dx.x2[i], E->T[i]);
   fclose(fp);
 
   sprintf(output_file, "%s/nv.%03d.dx", E->control.data_file, nframe);
   fp = fopen(output_file, "w");
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
     fprintf(fp, "%.4e %.4e %.4e\n", E->ibm_dx.x1[i] + offset2, E->ibm_dx.x2[i], E->C[i]);
   fclose(fp);
 
@@ -629,7 +633,7 @@ int file_number;
   void output_phasefile();
   void get_surface_velo();
   void get_ele_visc();
-  const int nno = E->mesh.nno;
+  const int nno = E->lmesh.nno;
   /*
   if (been_here==0 && E->control.restart==0) {
     sprintf(output_file,"%s.velo",E->control.data_file);
@@ -748,10 +752,10 @@ int file_number;
   int e, l, z, jj, kk;
   double temp0;
   const int vpts = vpoints[E->mesh.nsd];
-  const int nel = E->mesh.nel;
-  const int nno = E->mesh.nno;
-  const int ends = enodes[E->mesh.nsd];
-
+  const int nel = E->lmesh.nel;
+  const int nno = E->lmesh.nno;
+  const int ends = enodes[E->lmesh.nsd];
+  void visc_from_gint_to_nodes();
   eedot = (double *)malloc((2 + nel) * sizeof(double));
   nedot = (double *)malloc((2 + nno) * sizeof(double));
   eedot11 = (double *)malloc((2 + nel) * sizeof(double));
@@ -764,13 +768,13 @@ int file_number;
   one = 1.0;
   two = 2.0;
   strain_rate_2_inv_moreout(E, eedot, eedot11, eedot22, eedot12, 1);
-  sprintf(output_file, "%s/strainrate.%d", E->control.data_file, file_number);
+  sprintf(output_file, "%s/strainrate.%d.%d", E->control.data_file, file_number, E->parallel.me);
   fp1 = fopen(output_file, "w");
-  fprintf(fp1, "%6d %6d %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
-  v_to_nodes(E, eedot, nedot, E->mesh.levmax);
-  v_to_nodes(E, eedot11, nedot11, E->mesh.levmax);
-  v_to_nodes(E, eedot22, nedot22, E->mesh.levmax);
-  v_to_nodes(E, eedot12, nedot12, E->mesh.levmax);
+  fprintf(fp1, "%6d %6d %.5e\n", E->lmesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
+  visc_from_gint_to_nodes(E, eedot, nedot, E->mesh.levmax);
+  visc_from_gint_to_nodes(E, eedot11, nedot11, E->mesh.levmax);
+  visc_from_gint_to_nodes(E, eedot22, nedot22, E->mesh.levmax);
+  visc_from_gint_to_nodes(E, eedot12, nedot12, E->mesh.levmax);
   for (n = 1; n <= nno; n++)
     fprintf(fp1, "%.4e %.4e %.4e %.4e\n", nedot[n], nedot11[n], nedot22[n], nedot12[n]);
   fclose(fp1);

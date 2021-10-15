@@ -86,87 +86,12 @@ void advection_diffusion_allocate_memory(E) struct All_variables *E;
 
 {
   int i;
-
-  E->Tdot = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-  for (i = 1; i <= E->mesh.nno; i++)
+  const int nno = E->lmesh.nno;
+  const int nel = E->lmesh.nel;
+  int me = E->parallel.me;
+  E->Tdot = (double *)malloc((nno + 1) * sizeof(double));
+  for (i = 1; i <= nno; i++)
     E->Tdot[i] = 0.0;
-
-  if (E->control.composition)
-  {
-    E->Cdot = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-    for (i = 1; i <= E->mesh.nno; i++)
-      E->Cdot[i] = 0.0;
-    if (!(strcmp(E->control.comp_adv_method, "field") == 0))
-    {
-      E->advection.markers = E->advection.markers_per_ele * E->mesh.nel;
-      for (i = 1; i <= E->mesh.nsd; i++)
-      {
-        E->VO[i] = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->XMC[i] = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->XMCpred[i] = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      }
-      E->C12 = (int *)malloc((E->advection.markers + 1) * sizeof(int));
-      E->CElement = (int *)malloc((E->advection.markers + 1) * sizeof(int));
-    }
-
-    if (E->control.phasefile_C || E->control.phasefile_Complete)
-    {
-      fprintf(stderr, "construct marker array\n");
-      /* creat array for tracer to store  in marker size */
-      /* note first two are int for flavor */
-      for (i = 0; i <= 1; i++)
-      {
-        E->C_phasefile_marker_int[i] = (int *)malloc((E->advection.markers + 1) * sizeof(int));
-      }
-      for (i = 0; i <= E->control.phasefile_C_num_marker - 1; i++)
-      {
-        E->C_phasefile_marker_double[i] = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      }
-      /* creat array for tracer to store  in element size */
-      fprintf(stderr, "construct marker element array\n");
-
-      for (i = 0; i <= E->control.phasefile_C_num_element - 1; i++)
-      {
-        E->C_phasefile_element[i] = (double *)malloc((E->mesh.nel + 1) * sizeof(double));
-      }
-      fprintf(stderr, "construct marker nno array\n");
-
-      /* creat array for tracer to store  in nno size */
-      for (i = 0; i <= E->control.phasefile_C_num_nno - 1; i++)
-      {
-        E->C_phasefile_nno[i] = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-      }
-    }
-    if (E->control.phasevisc_C)
-    {
-      E->Cphasedot = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-      E->Cphasedotnum = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-      E->Cphase_node = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-
-      E->Tphase_node = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-      E->Pphase_node = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-
-      for (i = 1; i <= E->mesh.nno; i++)
-      {
-        E->Cphasedot[i] = 0.0;
-        E->Cphasedotnum[i] = 0.0;
-      }
-      //      if (!(strcmp(E->control.comp_adv_method,"field")==0)) {
-      E->Cphase_marker = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      E->Cphase_marker_old = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      E->Tphase_marker = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      E->Pphase_marker = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-      if (E->control.phasevisc_d)
-      {
-        E->d_marker = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->d_marker_old = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->d_dotnum = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->d_dot = (double *)malloc((E->advection.markers + 1) * sizeof(double));
-        E->d_node = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-      }
-      //      }
-    }
-  }
 
   return;
 }
@@ -184,24 +109,22 @@ void PG_timestep_particle(E) struct All_variables *E;
   void Runge_Kutta();
   void Euler();
   void get_fixed_temp();
-  double Tmax(), T_interior1;
-  int i, j, psc_pass, count, steps, iredo;
+  double Tmax(), T_interior1, T_maxvaried;
+  int iredo, i, psc_pass, count;
   int keep_going;
-
+  const int nno = E->lmesh.nno;
   void Cphase_markers();
 
-  double *T1, *Tdot1;
-  static double *DTdot;
+  double *T1, *Tdot1, *DTdot;
   FILE *fp;
 
   static int loops_since_new_eta = 0;
   static int been_here = 0;
   static int on_off = 0;
 
-  if (been_here++ == 0)
-  {
-    DTdot = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-  }
+  DTdot = (double *)malloc((nno + 1) * sizeof(double));
+  Tdot1 = (double *)malloc((nno + 1) * sizeof(double));
+  T1 = (double *)malloc((nno + 1) * sizeof(double));
 
   if (on_off == 0)
   {
@@ -212,40 +135,88 @@ void PG_timestep_particle(E) struct All_variables *E;
 
   if (on_off == 1)
   {
-
-    Runge_Kutta(E, E->XMC, E->XMCpred, E->C, E->V, E->VO);
+    Runge_Kutta(E, E->C, E->V, on_off);
   }
 
   else if (on_off == 0)
   {
-
-    Euler(E, E->XMC, E->XMCpred, E->C, E->V, E->VO);
-
-    /* update temperature    */
-    if (E->control.Ra_temp > 0)
+    for (i = 1; i <= nno; i++)
     {
-      predictor(E, E->T, E->Tdot, 1);
-      for (psc_pass = 0; psc_pass < E->advection.temp_iterations; psc_pass++)
+      T1[i] = E->T[i];
+      Tdot1[i] = E->Tdot[i];
+    }
+
+    T_maxvaried = 1.01;
+
+    T_interior1 = Tmax(E, E->T);
+
+    E->advection.dt_reduced = 1.0;
+    E->advection.last_sub_iterations = 1;
+
+    count = 0;
+
+    do
+    {
+
+      E->advection.timestep *= E->advection.dt_reduced;
+
+      iredo = 0;
+
+      if (E->advection.ADVECTION)
       {
-        pg_solver(E, E->T, E->Tdot, DTdot, E->V, 1.0, E->TB, E->node);
-        corrector(E, E->T, E->Tdot, DTdot, 1);
+
+//        fprintf(stderr, "before predictor\n");
+
+        predictor(E, E->T, E->Tdot);
+
+        for (psc_pass = 0; psc_pass < E->advection.temp_iterations; psc_pass++)
+        {
+//          fprintf(stderr, "before pg_solver\n");
+
+          pg_solver(E, E->T, E->Tdot, DTdot, E->V, E->convection.heat_sources, 1.0, 1, E->TB, E->node);
+//          fprintf(stderr, "before corrector\n");
+
+          corrector(E, E->T, E->Tdot, DTdot);
+        }
+      }
+//      fprintf(stderr, "before maxT\n");
+
+      /* get the max temperature for new T */
+      E->monitor.T_interior = Tmax(E, E->T);
+
+      if (E->monitor.T_interior / T_interior1 > T_maxvaried)
+      {
+        for (i = 1; i <= nno; i++)
+        {
+          E->T[i] = T1[i];
+          E->Tdot[i] = Tdot1[i];
+        }
+        iredo = 1;
+        E->advection.dt_reduced *= 0.5;
+        E->advection.last_sub_iterations++;
       }
 
-      temperatures_conform_bcs(E, E->T);
-    }
-  }
+    } while (iredo == 1 && E->advection.last_sub_iterations <= 5);
+
+    count++;
+//    fprintf(stderr, "before conform T\n");
+
+    temperatures_conform_bcs(E);
+
+    E->advection.last_sub_iterations = count;
+//   fprintf(stderr, "before Euler\n");
+
+    Euler(E, E->C, E->V, on_off);
+
+    E->monitor.elapsed_time += E->advection.timestep;
+  } /* end for on_off==0  */
+//  fprintf(stderr, "before thermal buo\n");
 
   thermal_buoyancy(E);
-  /* Wei add 2020 Aug 5 */
 
-  /*    if(E->control.phasevisc_C) {
-        Cphase_markers(E,E->Cphase_marker_old,E->XMC,E->CElement);
-    }
-*/
-  /**/
   if (E->control.phasevisc_d)
   {
-    for (i = 1; i <= E->advection.markers; i++)
+    for (i = 1; i <= E->advection.markers_uplimit; i++)
     {
       E->d_marker_old[i] = E->d_marker[i];
     }
@@ -257,7 +228,9 @@ void PG_timestep_particle(E) struct All_variables *E;
     E->control.keep_going = 0;
 
   on_off = (on_off == 0) ? 1 : 0;
-
+  free((void *)DTdot); /* free memory for vel solver */
+  free((void *)Tdot1); /* free memory for vel solver */
+  free((void *)T1);    /* free memory for vel solver */
   return;
 }
 
@@ -271,9 +244,9 @@ void PG_timestep(E) struct All_variables *E;
   void std_timestep();
   void temperatures_conform_bcs();
   void thermal_buoyancy();
-  double Tmax(), Tmin(), T_interior1, maxT, minT;
+  double Tmax(), Tmin(), T_interior1, maxT, minT, T_maxvaried;
   double fnmax();
-  int i, j, psc_pass, count, steps, iredo;
+  int iredo, i, psc_pass, count;
   int keep_going;
 
   double *DTdot, *T1, *Tdot1;
@@ -281,10 +254,10 @@ void PG_timestep(E) struct All_variables *E;
   static int loops_since_new_eta = 0;
   static int been_here = 0;
   void filter();
-
-  DTdot = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-  T1 = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
-  Tdot1 = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
+  const int nno = E->lmesh.nno;
+  DTdot = (double *)malloc((nno + 1) * sizeof(double));
+  T1 = (double *)malloc((nno + 1) * sizeof(double));
+  Tdot1 = (double *)malloc((nno + 1) * sizeof(double));
 
   if (been_here++ == 0)
   {
@@ -295,21 +268,12 @@ void PG_timestep(E) struct All_variables *E;
 
   std_timestep(E);
 
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= nno; i++)
   {
     T1[i] = E->T[i];
     Tdot1[i] = E->Tdot[i];
   }
-  /*
-    if (E->control.composition)         {
-       predictor(E,E->C,E->Cdot,0); 
-	   for(psc_pass=0;psc_pass<E->advection.temp_iterations;psc_pass++) {
-               pg_solver(E,E->C,E->Cdot,DTdot,E->V,E->control.comp_diff,E->CB,E->node);
-	       corrector(E,E->C,E->Cdot,DTdot,0);
-	   }
-           
-    }
-*/
+
   E->advection.dt_reduced = 1.0;
   E->advection.last_sub_iterations = 1;
 
@@ -319,21 +283,25 @@ void PG_timestep(E) struct All_variables *E;
     E->advection.timestep *= E->advection.dt_reduced;
     iredo = 0;
 
-    predictor(E, E->T, E->Tdot, 1);
-    for (psc_pass = 0; psc_pass < E->advection.temp_iterations; psc_pass++)
+    if (E->advection.ADVECTION)
     {
-      pg_solver(E, E->T, E->Tdot, DTdot, E->V, 1.0, E->TB, E->node);
-      corrector(E, E->T, E->Tdot, DTdot, 1);
-      temperatures_conform_bcs(E, E->T);
+      predictor(E, E->T, E->Tdot);
+
+      for (psc_pass = 0; psc_pass < E->advection.temp_iterations; psc_pass++)
+      {
+        pg_solver(E, E->T, E->Tdot, DTdot, E->V, E->convection.heat_sources, 1.0, 1, E->TB, E->node);
+        corrector(E, E->T, E->Tdot, DTdot);
+      }
     }
+
     E->monitor.T_interior = Tmax(E, E->T);
     maxT = E->monitor.T_interior;
     minT = Tmin(E, E->T);
 
-    if (maxT >= 1.0 || minT < 0.0)
+    if (maxT >= 2.0 || minT < 0.0)
     {
 
-      for (i = 1; i <= E->mesh.nno; i++)
+      for (i = 1; i <= nno; i++)
       {
         E->T[i] = T1[i];
         E->Tdot[i] = Tdot1[i];
@@ -345,23 +313,14 @@ void PG_timestep(E) struct All_variables *E;
       E->advection.last_sub_iterations++;
     }
 
-  } while (iredo == 1 && E->advection.last_sub_iterations <= 10);
+  } while (iredo == 1 && E->advection.last_sub_iterations <= 5);
 
   /*if(E->advection.filter_temperature) */
-  filter(E);
+  //filter(E);
 
   E->advection.total_timesteps++;
+  E->monitor.elapsed_time += E->advection.timestep;
   temperatures_conform_bcs(E, E->T);
-
-  if (E->control.composition)
-  {
-    predictor(E, E->C, E->Cdot, 0);
-    for (psc_pass = 0; psc_pass < E->advection.temp_iterations; psc_pass++)
-    {
-      pg_solver(E, E->C, E->Cdot, DTdot, E->V, E->control.comp_diff, E->CB, E->node);
-      corrector(E, E->C, E->Cdot, DTdot, 0);
-    }
-  }
 
   thermal_buoyancy(E);
 
@@ -381,37 +340,25 @@ void PG_timestep(E) struct All_variables *E;
    predictor and corrector steps.
    ============================== */
 
-void predictor(E, field, fielddot, ic) struct All_variables *E;
-double *field, *fielddot;
-int ic;
-
+void predictor(struct All_variables *E, double *field, double *fielddot)
 {
   int node;
   double multiplier;
 
   multiplier = (1.0 - E->advection.gamma) * E->advection.timestep;
 
-  if (ic == 1)
-    for (node = 1; node <= E->mesh.nno; node++)
-    {
-      if (!(E->node[node] & (OFFSIDE | TBX | TBZ | TBY)))
-        field[node] += multiplier * fielddot[node];
-      fielddot[node] = 0.0;
-    }
-  else
-    for (node = 1; node <= E->mesh.nno; node++)
-    {
-      if (!(E->node[node] & OFFSIDE))
-        field[node] += multiplier * fielddot[node];
-      fielddot[node] = 0.0;
-    }
+  for (node = 1; node <= E->lmesh.nno; node++)
+  {
+    if (!(E->node[node] & (TBX | TBZ | TBY)))
+      field[node] += multiplier * fielddot[node];
+    fielddot[node] = 0.0;
+  }
 
   return;
 }
 
-void corrector(E, field, fielddot, Dfielddot, ic) struct All_variables *E;
+void corrector(E, field, fielddot, Dfielddot) struct All_variables *E;
 double *field, *fielddot, *Dfielddot;
-int ic;
 
 {
   int node;
@@ -419,20 +366,12 @@ int ic;
 
   multiplier = E->advection.gamma * E->advection.timestep;
 
-  if (ic == 1)
-    for (node = 1; node <= E->mesh.nno; node++)
-    {
-      if (!(E->node[node] & (OFFSIDE | TBX | TBZ | TBY)))
-        field[node] += multiplier * Dfielddot[node];
-      fielddot[node] += Dfielddot[node];
-    }
-  else
-    for (node = 1; node <= E->mesh.nno; node++)
-    {
-      if (!(E->node[node] & OFFSIDE))
-        field[node] += multiplier * Dfielddot[node];
-      fielddot[node] += Dfielddot[node];
-    }
+  for (node = 1; node <= E->lmesh.nno; node++)
+  {
+    if (!(E->node[node] & (TBX | TBZ | TBY)))
+      field[node] += multiplier * Dfielddot[node];
+    fielddot[node] += Dfielddot[node];
+  }
 
   return;
 }
@@ -445,37 +384,39 @@ int ic;
    workstations.
    =================================================== */
 
-void pg_solver(E, T, Tdot, DTdot, V, diff, TBC, FLAGS) struct All_variables *E;
+void pg_solver(E, T, Tdot, DTdot, V, Q0, diff, bc, TBC, FLAGS) struct All_variables *E;
 double *T, *Tdot, *DTdot;
 double **V;
+struct SOURCES Q0;
 double diff;
+int bc;
 double **TBC;
 unsigned int *FLAGS;
 {
   void get_global_shape_fn();
   void pg_shape_fn();
   void element_residual();
-  int el, e, a, i, a1;
-  double xk[3][5], Eres[9]; /* correction to the (scalar) Tdot field */
+  void e_exchange_node_fc();
+  void exchange_node_f20();
+  void process_heating(); /* RA routine for EBA : H_shear H_adiab H_latent*/
+  int el, a, i, a1;
+  double Eres[9]; /* correction to the (scalar) Tdot field */
 
   struct Shape_function PG;
-  struct Shape_function GN;
-  struct Shape_function_dA dOmega;
-  struct Shape_function_dx GNx;
 
   const int dims = E->mesh.nsd;
-  const int dofs = E->mesh.dof;
   const int ends = enodes[dims];
 
-  for (i = 1; i <= E->mesh.nno; i++)
+  process_heating(E);
+
+  for (i = 1; i <= E->lmesh.nno; i++)
     DTdot[i] = 0.0;
 
-  for (el = 1; el <= E->mesh.nel; el++)
+  for (el = 1; el <= E->lmesh.nel; el++)
   {
 
-    get_global_shape_fn(E, el, &GN, &GNx, &dOmega, 0, E->mesh.levmax);
-    pg_shape_fn(E, el, &PG, &GNx, V, diff);
-    element_residual(E, el, PG, GNx, dOmega, V, T, Tdot, Eres, diff);
+    pg_shape_fn(E, el, &PG, V, diff);
+    element_residual(E, el, PG, V, T, Tdot, Q0, Eres, diff, TBC, FLAGS);
 
     for (a = 1; a <= ends; a++)
     {
@@ -485,10 +426,10 @@ unsigned int *FLAGS;
 
   } /* next element */
 
-  for (i = 1; i <= E->mesh.nno; i++)
+  exchange_node_f20(E, DTdot, E->mesh.levmax);
+
+  for (i = 1; i <= E->lmesh.nno; i++)
   {
-    if (E->node[i] & OFFSIDE)
-      continue;
     DTdot[i] *= E->Mass[i]; /* lumped mass matrix */
   }
 
@@ -499,77 +440,129 @@ unsigned int *FLAGS;
    Petrov-Galerkin shape functions for a given element
    =================================================== */
 
-void pg_shape_fn(E, el, PG, GNx, V, diffusion) struct All_variables *E;
+void pg_shape_fn(E, el, PG, V, diffusion) struct All_variables *E;
 int el;
 struct Shape_function *PG;
-struct Shape_function_dx *GNx;
 double **V;
 double diffusion;
 
 {
-  int i, j, node;
+  int i, j;
   int *ienmatrix;
 
   double uc1, uc2, uc3;
-  double u1, u2, u3, VV[4][9];
-  double uxse, ueta, ufai, xse, eta, fai, dx1, dx2, dx3, adiff;
+  double size1, size2, size3;
+  double u1, u2, u3;
+  double adiff, dx1, dx2, dx3, uxse, ueta, ufai, xse, eta, fai;
 
-  double prod1, unorm, twodiff;
+  double twodiff, prod1;
+
+  double unorm;
 
   const int dims = E->mesh.nsd;
-  const int dofs = E->mesh.dof;
-  const int lev = E->mesh.levmax;
-  const int nno = E->mesh.nno;
-  const int ends = enodes[E->mesh.nsd];
-  const int vpts = vpoints[E->mesh.nsd];
 
   ienmatrix = E->ien[el].node;
 
   twodiff = 2.0 * diffusion;
 
+  size1 = (double)E->eco[el].size[1];
+  size2 = (double)E->eco[el].size[2];
+  size3 = (double)E->eco[el].size[3];
+
   uc1 = uc2 = uc3 = 0.0;
 
-  for (i = 1; i <= ends; i++)
+  if (3 == dims)
   {
-    node = ienmatrix[i];
-    VV[1][i] = V[1][node];
-    VV[2][i] = V[2][node];
-  }
-
-  for (i = 1; i <= ENODES2D; i++)
-  {
-    uc1 += E->N.ppt[GNPINDEX(i, 1)] * VV[1][i];
-    uc2 += E->N.ppt[GNPINDEX(i, 1)] * VV[2][i];
-  }
-  dx1 = 0.5 * (E->X[1][ienmatrix[3]] + E->X[1][ienmatrix[4]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[2]]);
-  dx2 = 0.5 * (E->X[2][ienmatrix[3]] + E->X[2][ienmatrix[4]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[2]]);
-  uxse = fabs(uc1 * dx1 + uc2 * dx2);
-
-  dx1 = 0.5 * (E->X[1][ienmatrix[2]] + E->X[1][ienmatrix[3]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[4]]);
-  dx2 = 0.5 * (E->X[2][ienmatrix[2]] + E->X[2][ienmatrix[3]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[4]]);
-  ueta = fabs(uc1 * dx1 + uc2 * dx2);
-
-  xse = (uxse > twodiff) ? (1.0 - twodiff / uxse) : 0.0;
-  eta = (ueta > twodiff) ? (1.0 - twodiff / ueta) : 0.0;
-
-  unorm = uc1 * uc1 + uc2 * uc2;
-
-  adiff = (unorm > 0.000001) ? ((uxse * xse + ueta * eta) / (2.0 * unorm)) : 0.0;
-
-  for (i = 1; i <= VPOINTS2D; i++)
-  {
-    u1 = u2 = 0.0;
-    for (j = 1; j <= ENODES2D; j++) /* this line heavily used */
+    for (i = 1; i <= ENODES3D; i++)
     {
-      u1 += VV[1][j] * E->N.vpt[GNVINDEX(j, i)];
-      u2 += VV[2][j] * E->N.vpt[GNVINDEX(j, i)];
+      uc1 += E->N.ppt[GNPINDEX(i, 1)] * V[1][ienmatrix[i]];
+      uc2 += E->N.ppt[GNPINDEX(i, 1)] * V[2][ienmatrix[i]];
+      uc3 += E->N.ppt[GNPINDEX(i, 1)] * V[3][ienmatrix[i]];
     }
 
-    for (j = 1; j <= ENODES2D; j++)
+    dx1 = 0.25 * (E->X[1][ienmatrix[3]] + E->X[1][ienmatrix[4]] + E->X[1][ienmatrix[7]] + E->X[1][ienmatrix[8]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[2]] - E->X[1][ienmatrix[5]] - E->X[1][ienmatrix[6]]);
+    dx2 = 0.25 * (E->X[2][ienmatrix[3]] + E->X[2][ienmatrix[4]] + E->X[2][ienmatrix[7]] + E->X[2][ienmatrix[8]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[2]] - E->X[2][ienmatrix[5]] - E->X[2][ienmatrix[6]]);
+    dx3 = 0.25 * (E->X[3][ienmatrix[3]] + E->X[3][ienmatrix[4]] + E->X[3][ienmatrix[7]] + E->X[3][ienmatrix[8]] - E->X[3][ienmatrix[1]] - E->X[3][ienmatrix[2]] - E->X[3][ienmatrix[5]] - E->X[3][ienmatrix[6]]);
+    uxse = fabs(uc1 * dx1 + uc2 * dx2 + uc3 * dx3);
+
+    dx1 = 0.25 * (E->X[1][ienmatrix[2]] + E->X[1][ienmatrix[3]] + E->X[1][ienmatrix[6]] + E->X[1][ienmatrix[7]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[4]] - E->X[1][ienmatrix[5]] - E->X[1][ienmatrix[8]]);
+    dx2 = 0.25 * (E->X[2][ienmatrix[2]] + E->X[2][ienmatrix[3]] + E->X[2][ienmatrix[6]] + E->X[2][ienmatrix[7]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[4]] - E->X[2][ienmatrix[5]] - E->X[2][ienmatrix[8]]);
+    dx3 = 0.25 * (E->X[3][ienmatrix[2]] + E->X[3][ienmatrix[3]] + E->X[3][ienmatrix[6]] + E->X[3][ienmatrix[7]] - E->X[3][ienmatrix[1]] - E->X[3][ienmatrix[4]] - E->X[3][ienmatrix[5]] - E->X[3][ienmatrix[8]]);
+    ueta = fabs(uc1 * dx1 + uc2 * dx2 + uc3 * dx3);
+
+    dx1 = 0.25 * (E->X[1][ienmatrix[5]] + E->X[1][ienmatrix[6]] + E->X[1][ienmatrix[7]] + E->X[1][ienmatrix[8]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[2]] - E->X[1][ienmatrix[3]] - E->X[1][ienmatrix[4]]);
+    dx2 = 0.25 * (E->X[2][ienmatrix[5]] + E->X[2][ienmatrix[6]] + E->X[2][ienmatrix[7]] + E->X[2][ienmatrix[8]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[2]] - E->X[2][ienmatrix[3]] - E->X[2][ienmatrix[4]]);
+    dx3 = 0.25 * (E->X[3][ienmatrix[5]] + E->X[3][ienmatrix[6]] + E->X[3][ienmatrix[7]] + E->X[3][ienmatrix[8]] - E->X[3][ienmatrix[1]] - E->X[3][ienmatrix[2]] - E->X[3][ienmatrix[3]] - E->X[3][ienmatrix[4]]);
+    ufai = fabs(uc1 * dx1 + uc2 * dx2 + uc3 * dx3);
+
+    xse = (uxse > twodiff) ? (1.0 - twodiff / uxse) : 0.0;
+    eta = (ueta > twodiff) ? (1.0 - twodiff / ueta) : 0.0;
+    fai = (ufai > twodiff) ? (1.0 - twodiff / ufai) : 0.0;
+
+    unorm = uc1 * uc1 + uc2 * uc2 + uc3 * uc3;
+
+    adiff = (unorm > 0.000001) ? ((uxse * xse + ueta * eta + ufai * fai) / (2.0 * unorm)) : 0.0;
+
+    for (i = 1; i <= VPOINTS3D; i++)
     {
-      prod1 = (u1 * GNx->vpt[GNVXINDEX(0, j, i)] +
-               u2 * GNx->vpt[GNVXINDEX(1, j, i)]);
-      PG->vpt[GNVINDEX(j, i)] = E->N.vpt[GNVINDEX(j, i)] + adiff * prod1;
+      u1 = u2 = u3 = 0.0;
+      for (j = 1; j <= ENODES3D; j++) /* this line heavily used */
+      {
+        u1 += V[1][ienmatrix[j]] * E->N.vpt[GNVINDEX(j, i)];
+        u2 += V[2][ienmatrix[j]] * E->N.vpt[GNVINDEX(j, i)];
+        u3 += V[3][ienmatrix[j]] * E->N.vpt[GNVINDEX(j, i)];
+      }
+
+      for (j = 1; j <= ENODES3D; j++)
+      {
+        prod1 = (u1 * E->gNX[el].vpt[GNVXINDEX(0, j, i)] +
+                 u2 * E->gNX[el].vpt[GNVXINDEX(1, j, i)] +
+                 u3 * E->gNX[el].vpt[GNVXINDEX(2, j, i)]);
+
+        PG->vpt[GNVINDEX(j, i)] = E->N.vpt[GNVINDEX(j, i)] + adiff * prod1;
+      }
+    }
+  }
+
+  else if (2 == dims)
+  {
+    for (i = 1; i <= ENODES2D; i++)
+    {
+      uc1 += E->N.ppt[GNPINDEX(i, 1)] * V[1][ienmatrix[i]];
+      uc2 += E->N.ppt[GNPINDEX(i, 1)] * V[2][ienmatrix[i]];
+    }
+    dx1 = 0.5 * (E->X[1][ienmatrix[3]] + E->X[1][ienmatrix[4]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[2]]);
+    dx2 = 0.5 * (E->X[2][ienmatrix[3]] + E->X[2][ienmatrix[4]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[2]]);
+    uxse = fabs(uc1 * dx1 + uc2 * dx2);
+
+    dx1 = 0.5 * (E->X[1][ienmatrix[2]] + E->X[1][ienmatrix[3]] - E->X[1][ienmatrix[1]] - E->X[1][ienmatrix[4]]);
+    dx2 = 0.5 * (E->X[2][ienmatrix[2]] + E->X[2][ienmatrix[3]] - E->X[2][ienmatrix[1]] - E->X[2][ienmatrix[4]]);
+    ueta = fabs(uc1 * dx1 + uc2 * dx2);
+
+    xse = (uxse > twodiff) ? (1.0 - twodiff / uxse) : 0.0;
+    eta = (ueta > twodiff) ? (1.0 - twodiff / ueta) : 0.0;
+
+    unorm = uc1 * uc1 + uc2 * uc2;
+
+    adiff = (unorm > 0.000001) ? ((uxse * xse + ueta * eta) / (2.0 * unorm)) : 0.0;
+
+    for (i = 1; i <= VPOINTS2D; i++)
+    {
+      u1 = u2 = 0.0;
+      for (j = 1; j <= ENODES2D; j++) /* this line heavily used */
+      {
+        u1 += V[1][ienmatrix[j]] * E->N.vpt[GNVINDEX(j, i)];
+        u2 += V[2][ienmatrix[j]] * E->N.vpt[GNVINDEX(j, i)];
+      }
+
+      for (j = 1; j <= ENODES2D; j++)
+      {
+
+        prod1 = (u1 * E->gNX[el].vpt[GNVXINDEX(0, j, i)] +
+                 u2 * E->gNX[el].vpt[GNVXINDEX(1, j, i)]);
+
+        PG->vpt[GNVINDEX(j, i)] = E->N.vpt[GNVINDEX(j, i)] + adiff * prod1;
+      }
     }
   }
 
@@ -581,37 +574,31 @@ double diffusion;
    Used to correct the Tdot term.
    =========================================  */
 
-void element_residual(E, el, PG, GNx, dOmega, V, field, fielddot, Eres, diff) struct All_variables *E;
+void element_residual(E, el, PG, vel, field, fielddot, Q0, Eres, diff, BC, FLAGS) struct All_variables *E;
 int el;
 struct Shape_function PG;
-struct Shape_function_dA dOmega;
-struct Shape_function_dx GNx;
-double **V;
+double **vel;
 double *field, *fielddot;
+struct SOURCES Q0;
 double Eres[9];
 double diff;
+double **BC;
+unsigned int *FLAGS;
 
 {
-  int i, j, a, k, node, nodes[4], d, aid, back_front, onedfns;
+  int i, j, node;
   double Q;
-  double dT[9], VV[4][9];
+  double Qtotal[9], TT[9];
+  double dT[9];
   double tx1[9], tx2[9], tx3[9];
   double v1[9], v2[9], v3[9];
-  double adv_dT, t2[4];
   double T, DT;
-  static int been_here = 0;
+  double ADIg[9], VISg[9], LATg[9]; /* RA heating terms for the EBA at the gaussian points */
 
-  register double prod, sfn;
-  struct Shape_function1 GM;
-  struct Shape_function1_dA dGamma;
-  double temp;
-
+  register double sfn;
   void get_global_1d_shape_fn();
 
   const int dims = E->mesh.nsd;
-  const int dofs = E->mesh.dof;
-  const int nno = E->mesh.nno;
-  const int lev = E->mesh.levmax;
   const int ends = enodes[dims];
   const int vpts = vpoints[dims];
   const int diffusion = (diff != 0.0);
@@ -619,15 +606,11 @@ double diff;
   for (i = 1; i <= vpts; i++)
   {
     dT[i] = 0.0;
+    TT[i] = 0.0;
     v1[i] = tx1[i] = 0.0;
     v2[i] = tx2[i] = 0.0;
-  }
-
-  for (i = 1; i <= ends; i++)
-  {
-    node = E->ien[el].node[i];
-    VV[1][i] = V[1][node];
-    VV[2][i] = V[2][node];
+    v3[i] = tx3[i] = 0.0;
+    ADIg[i] = VISg[i] = LATg[i] = 0.0; /* RA initialze variables for EBA */
   }
 
   for (j = 1; j <= ends; j++)
@@ -642,29 +625,22 @@ double diff;
     for (i = 1; i <= vpts; i++)
     {
       dT[i] += DT * E->N.vpt[GNVINDEX(j, i)];
-      tx1[i] += GNx.vpt[GNVXINDEX(0, j, i)] * T;
-      tx2[i] += GNx.vpt[GNVXINDEX(1, j, i)] * T;
+      TT[i] += T * E->N.vpt[GNVINDEX(j, i)];
+      tx1[i] += E->gNX[el].vpt[GNVXINDEX(0, j, i)] * T;
+      tx2[i] += E->gNX[el].vpt[GNVXINDEX(1, j, i)] * T;
+      /* RA Interpolation at the gaussian point for EBA variables */
+      ADIg[i] += E->heating_adi[node] * E->N.vpt[GNVINDEX(j, i)];
+      VISg[i] += E->heating_visc[node] * E->N.vpt[GNVINDEX(j, i)];
+      LATg[i] += E->heating_latent[node] * E->N.vpt[GNVINDEX(j, i)];
       sfn = E->N.vpt[GNVINDEX(j, i)];
-      v1[i] += VV[1][j] * sfn;
-      v2[i] += VV[2][j] * sfn;
+      v1[i] += vel[1][node] * sfn;
+      v2[i] += vel[2][node] * sfn;
     }
   }
-
   Q = 0;
-
-  /*
-   if (diff>0.9)   {
-     for(j=1;j<=ends;j++) 
-       Q += E->C[E->ien[i].node[j]]; 
-     Q = Q/ends;
-     Q = Q*E->control.Q0;
-     }
-*/
-
-  Q = (E->rad_heat.total + E->heating_visc[el] - E->heating_adi[el]) / E->heating_latent[el];
   Q = E->rad_heat.total;
-
-  /* construct residual from this information */
+  if (E->control.visc_heating && E->control.adi_heating && E->control.latent_heating)
+    Q = (Q - E->heating_adi[el] + E->heating_visc[el]) * E->heating_latent[el];
 
   if (diffusion)
   {
@@ -672,56 +648,68 @@ double diff;
     {
       Eres[j] = 0.0;
       for (i = 1; i <= vpts; i++)
-        Eres[j] -= PG.vpt[GNVINDEX(j, i)] * dOmega.vpt[i] * (dT[i] - Q + v1[i] * tx1[i] + v2[i] * tx2[i]) +
-                   diff / E->heating_latent[el] * dOmega.vpt[i] * (GNx.vpt[GNVXINDEX(0, j, i)] * tx1[i] + GNx.vpt[GNVXINDEX(1, j, i)] * tx2[i]);
+      {
+        Eres[j] -= PG.vpt[GNVINDEX(j, i)] * E->gDA[el].vpt[i] * (dT[i] - Q + v1[i] * tx1[i] + v2[i] * tx2[i]) + diff * E->heating_latent[el] * E->gDA[el].vpt[i] * (E->gNX[el].vpt[GNVXINDEX(0, j, i)] * tx1[i] + E->gNX[el].vpt[GNVXINDEX(1, j, i)] * tx2[i]);
+      }
     }
   }
-
-  else
-  { /* no diffusion term */
+  else /* no diffusion term */
+  {
     for (j = 1; j <= ends; j++)
     {
       Eres[j] = 0.0;
       for (i = 1; i <= vpts; i++)
-        Eres[j] -= PG.vpt[GNVINDEX(j, i)] * dOmega.vpt[i] * (dT[i] - Q + v1[i] * tx1[i] + v2[i] * tx2[i]);
+      {
+        Eres[j] -= PG.vpt[GNVINDEX(j, i)] * E->gDA[el].vpt[i] *
+                   (dT[i] - Qtotal[i] / LATg[i] + v1[i] * tx1[i] + v2[i] * tx2[i]);
+      }
     }
   }
 
   /* See brooks etc: the diffusive term is excused upwinding for 
-	   rectangular elements  */
+       rectangular elements  */
 
-  /* include BC's for fluxes at (nominally horizontal) edges (X-Y plane) */
+  /* include BC's for fluxes at (nominally horizontal) edges 
+       (X-Y plane) */
 
-  /*    if(FLAGS!=NULL) {
-	onedfns=0;
-	for(a=1;a<=ends;a++)
-	    if (FLAGS[E->ien[el].node[a]] & FBZ) {
-		if (!onedfns++) get_global_1d_shape_fn(E,el,&GM,&dGamma);
- 
-		nodes[1] = loc[loc[a].node_nebrs[0][0]].node_nebrs[2][0];
-		nodes[2] = loc[loc[a].node_nebrs[0][1]].node_nebrs[2][0];
-		nodes[4] = loc[loc[a].node_nebrs[0][0]].node_nebrs[2][2];
-		nodes[3] = loc[loc[a].node_nebrs[0][1]].node_nebrs[2][2];
-	  
-		for(aid=0,j=1;j<=onedvpoints[E->mesh.nsd];j++)
-		    if (a==nodes[j])
-			aid = j;
-		if(aid==0)  
-		    printf("%d: mixed up in pg-flux int: looking for %d\n",el,a);
+  /* COMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENT
+       This part takes care of NON-ZERO BOTTOM heatflux, and doesn't
+       work correctly. For ZERO bottom heatflux this part may be 
+       skipped, because BC[2] (see below) is zero, and so it won't
+       add to the residue (JvH)
+    if(FLAGS!=NULL) 
+    {  onedfns=0;
+       for(a=1;a<=ends;a++)
+          if (FLAGS[E->ien[el].node[a]] & FBZ) 
+          {  if (!onedfns++) get_global_1d_shape_fn(E,el,&GM,&dGamma);
 
-		if (loc[a].plus[1] != 0)
-		    back_front = 0;
-		else back_front = dims;
+             nodes[1] = loc[loc[a].node_nebrs[0][0]].node_nebrs[2][0];
+             nodes[2] = loc[loc[a].node_nebrs[0][1]].node_nebrs[2][0];
+             nodes[4] = loc[loc[a].node_nebrs[0][0]].node_nebrs[2][2];
+             nodes[3] = loc[loc[a].node_nebrs[0][1]].node_nebrs[2][2];
+         
+             for(aid=0,j=1;j<=onedvpoints[E->mesh.nsd];j++)
+                if (a==nodes[j])
+                    aid = j;
+             if(aid==0)  
+                printf("%d: mixed up in pg-flux int: looking for %d\n",
+                    el,a);
 
-		for(j=1;j<=onedvpoints[dims];j++)
-		    for(k=1;k<=onedvpoints[dims];k++)
-			Eres[a] += dGamma.vpt[GMVGAMMA(1+back_front,j)] *
-			    E->M.vpt[GMVINDEX(aid,j)] * g_1d[j].weight[dims-1] *
-			    BC[2][E->ien[el].node[a]] * E->M.vpt[GMVINDEX(k,j)];
-	    }
+             if (loc[a].plus[1] != 0)
+                back_front = 0;
+             else back_front = dims;
+
+             for(j=1;j<=onedvpoints[dims];j++)
+                for(k=1;k<=onedvpoints[dims];k++)
+                   Eres[a] += dGamma.vpt[GMVGAMMA(1+back_front,j)] 
+                              * E->M.vpt[GMVINDEX(aid,j)] 
+                              * g_1d[j].weight[dims-1] 
+                              * BC[2][E->ien[el].node[a]] 
+                              * E->M.vpt[GMVINDEX(k,j)];
+          }
     } 
-    
- */
+    COMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENTCOMMENT */
+
   return;
 }
 
@@ -734,18 +722,18 @@ void std_timestep(E) struct All_variables *E;
 {
   static int been_here = 0;
   static double diff_timestep, root3, root2;
-  int i, d, n, nel, el, node;
+  int i, d, n, el, node;
 
   double adv_timestep;
   double ts, uc1, uc2, uc3, uc, size, step, VV[4][9];
-
+  double global_fmin();
   const int dims = E->mesh.nsd;
   const int dofs = E->mesh.dof;
-  const int nno = E->mesh.nno;
+  const int nno = E->lmesh.nno;
   const int lev = E->mesh.levmax;
   const int ends = enodes[dims];
 
-  nel = E->mesh.nel;
+  const int nel = E->lmesh.nel;
 
   if (E->advection.fixed_timestep != 0.0)
   {
@@ -758,12 +746,14 @@ void std_timestep(E) struct All_variables *E;
     diff_timestep = 1.0e8;
     for (el = 1; el <= nel; el++)
     {
-      ts = E->eco[el].size[1] * E->eco[el].size[1];
-      diff_timestep = min(diff_timestep, ts);
-      ts = E->eco[el].size[2] * E->eco[el].size[2];
-      diff_timestep = min(diff_timestep, ts);
+      for (d = 1; d <= dims; d++)
+      {
+        ts = E->eco[el].size[d] * E->eco[el].size[d];
+        if (diff_timestep > ts)
+          diff_timestep = ts;
+      }
     }
-    diff_timestep = 0.5 * diff_timestep;
+    diff_timestep = 0.5 * global_fmin(E, diff_timestep);
   }
 
   adv_timestep = 1.0e8;
@@ -806,15 +796,14 @@ void std_timestep(E) struct All_variables *E;
       adv_timestep = min(adv_timestep, step);
     }
   }
-  adv_timestep = E->advection.dt_reduced * adv_timestep;
-  //    adv_timestep = 1.0e-32+E->advection.fine_tune_dt * adv_timestep;
-
   adv_timestep = 1.0e-32 + min(E->advection.fine_tune_dt * adv_timestep, diff_timestep);
-  E->advection.timestep = adv_timestep;
+
+  E->advection.timestep = global_fmin(E, adv_timestep);
   if (E->control.lesstimeinte)
   {
     E->advection.timestep /= E->control.lesstimeinte_number;
   }
+
   return;
 }
 
@@ -832,8 +821,9 @@ void process_heating(E) struct All_variables *E;
   const int dims = E->mesh.nsd;
   const int ends = enodes[dims];
   const int lev = E->mesh.levmax;
-  const int nno = E->mesh.nno;
+  const int nno = E->lmesh.nno;
   const int vpts = vpoints[dims];
+  const int nel = E->lmesh.nel;
   const double two = 2.0;
 
   void strain_rate_2_inv();
@@ -862,7 +852,7 @@ void process_heating(E) struct All_variables *E;
 
   temp1 = E->data.disptn_number / E->control.Ra_temp;
   temp3 = temp4 = 0;
-  for (e = 1; e <= E->mesh.nel; e++)
+  for (e = 1; e <= nel; e++)
   {
     E->heating_latent[e] = 1.0;
   }
@@ -871,7 +861,7 @@ void process_heating(E) struct All_variables *E;
   {
     strain_rate_2_inv(E, E->heating_visc, 0);
 
-    for (e = 1; e <= E->mesh.nel; e++)
+    for (e = 1; e <= nel; e++)
     {
       temp2 = 0.0;
       for (i = 1; i <= vpts; i++)
@@ -885,9 +875,9 @@ void process_heating(E) struct All_variables *E;
 
   if (E->control.adi_heating)
   {
-    for (e = 1; e <= E->mesh.nel; e++)
+    for (e = 1; e <= nel; e++)
     {
-      ee = (e - 1) % E->mesh.elz + 1;
+      ee = (e - 1) % E->lmesh.elz + 1;
 
       temp2 = 0.0;
       for (i = 1; i <= ends; i++)
@@ -906,48 +896,57 @@ void process_heating(E) struct All_variables *E;
   MPI_Allreduce(&temp3, &temp5, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
   if (E->parallel.me == 0)
     fprintf(E->fp, "%g %g\n", temp5, temp6);
-  /*
-  if (E->control.Ra_670!=0.0)   {
-    temp1 = 2.0*E->control.clapeyron670*E->control.Ra_670/(E->control.Ra_temp/E->control.width670);
-    for (e=1;e<=E->mesh.nel;e++)  {
-      temp2 = 0;
-      temp3 = 0;
-      for (i=1;i<=ends;i++)    {
-        j = E->ien[e].node[i];
-        temp2 = temp2 + temp1*(1.0-E->Fas670[j])*E->Fas670[j]
-                   *E->V[2][j]*(E->T[j]+E->control.Ts)*E->data.disptn_number;
-        temp3 = temp3 + temp1*E->control.clapeyron670
-                        *(1.0-E->Fas670[j])*E->Fas670[j]
-                        *(E->T[j]+E->control.Ts)*E->data.disptn_number;
+
+  if (E->control.adi_heating || E->control.visc_heating)
+  {
+    if (E->control.Ra_670 != 0.0)
+    {
+      temp1 = 2.0 * E->control.clapeyron670 * E->control.Ra_670 / (E->control.Ra_temp / E->control.width670);
+      for (e = 1; e <= E->lmesh.nel; e++)
+      {
+        temp2 = 0;
+        temp3 = 0;
+        for (i = 1; i <= ends; i++)
+        {
+          j = E->ien[e].node[i];
+          temp2 = temp2 + temp1 * (1.0 - E->Fas670[j]) * E->Fas670[j] * E->V[2][j] * (E->T[j] + E->control.Ts) * E->data.disptn_number;
+          temp3 = temp3 + temp1 * E->control.clapeyron670 * (1.0 - E->Fas670[j]) * E->Fas670[j] * (E->T[j] + E->control.Ts) * E->data.disptn_number;
         }
-      temp2 = temp2/ends;
-      temp3 = temp3/ends;
-      E->heating_adi[e] += temp2;
-      E->heating_latent[e] += temp3;
+        temp2 = temp2 / ends;
+        temp3 = temp3 / ends;
+        E->heating_adi[e] += temp2;
+        E->heating_latent[e] += temp3;
       }
     }
 
-  if (E->control.Ra_410!=0.0)   {
-    temp1 = 2.0*E->control.clapeyron410*E->control.Ra_410/(E->control.Ra_temp/E->control.width410);
-    for (e=1;e<=E->mesh.nel;e++)  {
-      temp2 = 0;
-      temp3 = 0;
-      for (i=1;i<=ends;i++)    {
-        j = E->ien[e].node[i];
-        temp2 = temp2 + temp1*(1.0-E->Fas410[j])*E->Fas410[j]
-                   *E->V[2][j]*(E->T[j]+E->control.Ts)*E->data.disptn_number;
-        temp3 = temp3 + temp1*E->control.clapeyron410
-                       *(1.0-E->Fas410[j])*E->Fas410[j]
-                       *(E->T[j]+E->control.Ts)*E->data.disptn_number;
+    if (E->control.Ra_410 != 0.0)
+    {
+      temp1 = 2.0 * E->control.clapeyron410 * E->control.Ra_410 / (E->control.Ra_temp / E->control.width410);
+      for (e = 1; e <= E->lmesh.nel; e++)
+      {
+        temp2 = 0;
+        temp3 = 0;
+        for (i = 1; i <= ends; i++)
+        {
+          j = E->ien[e].node[i];
+          temp2 = temp2 + temp1 * (1.0 - E->Fas410[j]) * E->Fas410[j] * E->V[2][j] * (E->T[j] + E->control.Ts) * E->data.disptn_number;
+          temp3 = temp3 + temp1 * E->control.clapeyron410 * (1.0 - E->Fas410[j]) * E->Fas410[j] * (E->T[j] + E->control.Ts) * E->data.disptn_number;
         }
-      temp2 = temp2/ends;
-      temp3 = temp3/ends;
-      E->heating_adi[e] += temp2;
-      E->heating_latent[e] += temp3;
+        temp2 = temp2 / ends;
+        temp3 = temp3 / ends;
+        E->heating_adi[e] += temp2;
+        E->heating_latent[e] += temp3;
       }
     }
-*/
+  }
+
   fprintf(E->fp, "QQ %lf \n", E->rad_heat.total);
+
+  if (E->control.Ra_670 != 0.0 || E->control.Ra_410 != 0)
+  {
+    for (e = 1; e <= E->lmesh.nel; e++)
+      E->heating_latent[e] = 1.0 / E->heating_latent[e];
+  }
 
   if (E->monitor.solution_cycles % 1000 == 0)
   {
@@ -978,10 +977,10 @@ void filter(struct All_variables *E)
   Tmin1 = Tmax1 = 0.0;
   TDIST = TDIST1 = 0.0;
   sum_rhocp = 0.0;
-  rhocp = (double *)malloc((E->mesh.noz + 1) * sizeof(double));
-  for (i = 1; i <= E->mesh.noz; i++)
+  rhocp = (double *)malloc((E->lmesh.noz + 1) * sizeof(double));
+  for (i = 1; i <= E->lmesh.noz; i++)
     rhocp[i] = 1.0 * 1.0; /* capacity is const  */
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
   {
     Tsum0 += E->T[i];
     if (E->T[i] < minT)
@@ -994,7 +993,7 @@ void filter(struct All_variables *E)
       E->T[i] = Tmax0;
   }
 
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
   {
     if (E->T[i] <= fabs(2 * Tmin0 - Tmin1))
       E->T[i] = Tmin0;
@@ -1007,7 +1006,7 @@ void filter(struct All_variables *E)
     }
   }
   TDIST = Tsum0 - Tsum1;
-  for (i = 1; i <= E->mesh.nno; i++)
+  for (i = 1; i <= E->lmesh.nno; i++)
   {
     if (E->T[i] != Tmin0 && E->T[i] != Tmax0)
       E->T[i] += TDIST;

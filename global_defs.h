@@ -302,6 +302,12 @@ struct NEI
 struct Segment
 {
 
+    double plume_coord[4];
+    double plume_radius;
+    double plume_DT;
+    double *Tz;
+    double *Vx;
+    int sym_nx;
     int zlayers;
     int nzlayer[40];
     double zzlayer[40];
@@ -395,8 +401,8 @@ struct MESH_DATA
     int NOY[MAX_LEVELS];
     int NMX[MAX_LEVELS];
     int NXS[MAX_LEVELS];
-	int NZS[MAX_LEVELS];
-	int NYS[MAX_LEVELS];
+    int NZS[MAX_LEVELS];
+    int NYS[MAX_LEVELS];
     int NNX[MAX_LEVELS][4];
     int ELX[MAX_LEVELS];
     int ELZ[MAX_LEVELS];
@@ -419,6 +425,7 @@ struct MESH_DATA
     int elx;
     int noz;
     int noy;
+    int rnoz;
     int *exs;
     int ezs;
     int eys;
@@ -440,6 +447,7 @@ struct MESH_DATA
 
     int periodic_x;
     int periodic_y;
+    double volume;
     double layer[4]; /* dimensionless dimensions */
     double lidz;
     double bl1width[4], bl2width[4], bl1mag[4], bl2mag[4];
@@ -452,12 +460,15 @@ struct MESH_DATA
     int null_source;
     int null_sink;
     int matrix_size[MAX_LEVELS];
+    double *globalXX[4];
 };
 
 struct HAVE
 { /* horizontal averages */
     double *T;
     double *Vi;
+    double *C;
+    double *Tadi;
     double *Rho;
     double *f;
     double *F;
@@ -500,6 +511,7 @@ struct SLICE
 
     int minlong;
     int maxlong;
+    double Nub, Nut;
 };
 
 struct BAVE
@@ -561,6 +573,7 @@ struct MONITOR
     double Sigma_max;
     double Sigma_interior;
     double Vi_average;
+    double tau_scale;
 };
 
 struct CONTROL
@@ -607,11 +620,14 @@ struct CONTROL
     int visc_heating;
     int adi_heating;
     int latent_heating;
+    int ExBoussi;
+    int testweirdmesh;
 
     int composition;
     double comp_diff;
     double z_comp;
     int composition_phasechange;
+    int initialCOption;
 
     int initialTOption;
     int ocean_lith;
@@ -766,6 +782,8 @@ struct CONTROL
     int verbose;
     double accuracy;
     double vaccuracy;
+    double relaccCG;
+    double relaccMG;
 
     int total_iteration_cycles;
     int total_v_solver_calls;
@@ -864,14 +882,18 @@ struct All_variables
     struct Segment segment;
     struct Radioactive_Heat rad_heat;
     struct Parallel parallel;
-    higher_precision *Eqn_k[MAX_LEVELS];
+    higher_precision *Eqn_k1[MAX_LEVELS];
+    higher_precision *Eqn_k2[MAX_LEVELS];
+    higher_precision *Eqn_k3[MAX_LEVELS];
     int *Node_map[MAX_LEVELS];
     int *Node_eqn[MAX_LEVELS];
     int *Node_k_id[MAX_LEVELS];
 
-    float *RVV[27], *PVV[27];
+    double *RVV[27], *PVV[27];
     double *RXX[27], *PXX[27];
     int *RINS[27], *PINS[27];
+    int *RC_INT[27], *PC_INT[27];
+    double *RC_DB[27], *PC_DB[27];
 
     double *BI[MAX_LEVELS]; /* inv of  diagonal elements of K matrix */
     double *BPI[MAX_LEVELS];
@@ -888,13 +910,18 @@ struct All_variables
     double *P, *F, *H, *S, *U;
     double *Psi;
     double *NP;
+    double *heatflux;
+    double *heatflux_adv;
     double *edot;                    /* strain rate invariant */
     double *MASS[MAX_LEVELS], *Mass; /* lumped mass matrix (diagonal elements) for p-g solver etc. */
     double *tw;
     double *stress;
-    double *XP[4], XG1[4], XG2[4], *X[4],*SX[4], *XX[MAX_LEVELS][4], *Interp[MAX_LEVELS][4];
+    int *RG[4];
+    double *XRG[4];
+    double *XP[4], XG1[4], XG2[4], *X[4], *SX[4], *XX[MAX_LEVELS][4], *Interp[MAX_LEVELS][4];
     double *ZZ;
     double *T, *C, *CE, *IHeat, *buoyancy, *T_old;
+    double *XL[4];
 
     double *T_phase, *P_phase, *density_phase, *Vp_phase, *Vs_phase;
 
@@ -904,6 +931,7 @@ struct All_variables
     double *d, *dE, *d_marker, *d_marker_old, *d_node, *d_dot, *d_dotnum;
     int C_phasefile_num_nno, C_phasefile_num_element, C_phasefile_num_marker;
     int *C_phasefile_marker_int[100];
+    int C_phasefile_markers_int_num_store, C_phasefile_markers_double_num_store;
     double *C_phasefile_nno[100], *C_phasefile_element[100], *C_phasefile_marker_double[100];
 
     double *heating_visc, *heating_adi, *heating_latent;
@@ -911,6 +939,8 @@ struct All_variables
     double *Fas670_b, *Fas410_b, *Fas670_basalt_b;
     double *Fas670_all_b;
     double *Vi, *EVi;
+    double *diffusivity, *expansivity;
+
     double *VI[MAX_LEVELS];        /* viscosity has to soak down to all levels */
     double *EVI[MAX_LEVELS];       /* element viscosity has to soak down to all levels */
     double *VB[4], *TB[4], *CB[4]; /* boundary conditions for V,T defined everywhere */
@@ -931,12 +961,18 @@ struct All_variables
     unsigned int *eqn;
     unsigned int *EQN[MAX_LEVELS];
 
+    double *temp;
     double **global_K; /* direct solver stuff */
     double **factor_K;
     double *global_F;
     struct LM *lmd;
     struct LM *lm;
     struct LM *LMD[MAX_LEVELS];
+
+    struct Shape_function_dx *GNX[MAX_LEVELS];
+    struct Shape_function_dA *GDA[MAX_LEVELS];
+    struct Shape_function_dx *gNX;
+    struct Shape_function_dA *gDA;
 
     struct Shape_function1 M; /* master-element shape funtions */
     struct Shape_function1_dx Mx;

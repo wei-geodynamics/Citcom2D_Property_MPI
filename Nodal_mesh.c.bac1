@@ -16,9 +16,9 @@ extern int Emergency_stop;
 void node_locations(E) struct All_variables *E;
 {
   int lev, nodel, i, j, k, ii, d, node, ix, iy, iz;
-  double *XG[4], dx[4], dx1, dx2;
+  float *XG[4], dx[4], dx1, dx2;
   double *XX[4], dxx[40], x00;
-  double PI = 3.141592635;
+  float PI = 3.141592635;
   int n00, nox, noz, noy, fn;
 
   const int dims = E->mesh.nsd;
@@ -32,17 +32,17 @@ void node_locations(E) struct All_variables *E;
   E->control.testweirdmesh = 0;
 
   input_int("z_grid_layers", &(E->segment.zlayers), "1");
-  input_double_vector("zz", E->segment.zlayers, (E->segment.zzlayer));
+  input_float_vector("zz", E->segment.zlayers, (E->segment.zzlayer));
   input_int_vector("nz", E->segment.zlayers, (E->segment.nzlayer));
 
   input_int("x_grid_layers", &(E->segment.xlayers), "1");
-  input_double_vector("xx", E->segment.xlayers, (E->segment.xxlayer));
+  input_float_vector("xx", E->segment.xlayers, (E->segment.xxlayer));
   input_int_vector("nx", E->segment.xlayers, (E->segment.nxlayer));
 
   if (dims == 3)
   {
     input_int("y_grid_layers", &(E->segment.ylayers), "1");
-    input_double_vector("yy", E->segment.ylayers, (E->segment.yylayer));
+    input_float_vector("yy", E->segment.ylayers, (E->segment.yylayer));
     input_int_vector("ny", E->segment.ylayers, (E->segment.nylayer));
   }
 
@@ -53,8 +53,8 @@ void node_locations(E) struct All_variables *E;
   for (d = 1; d <= E->mesh.nsd; d++)
   {
     XX[d] = (double *)malloc((2 + E->mesh.nnx[d]) * sizeof(double));
-    XG[d] = (double *)malloc((2 + 1) * sizeof(double));
-    E->mesh.globalXX[d] = (double *)malloc((2 + E->mesh.nnx[d]) * sizeof(double)); /*VM 20130429*/
+    XG[d] = (float *)malloc((2 + 1) * sizeof(float));
+    E->mesh.globalXX[d] = (float *)malloc((2 + E->mesh.nnx[d]) * sizeof(float)); /*VM 20130429*/
   }
 
   for (d = 1; d <= E->mesh.nsd; d++)
@@ -66,37 +66,78 @@ void node_locations(E) struct All_variables *E;
       XX[d][i] = XX[d][i - 1] + dx[d];
   }
 
-  for (j = 1; j < E->segment.xlayers; j++)
-    dxx[j] = (E->segment.xxlayer[j] - E->segment.xxlayer[j - 1]) / (E->segment.nxlayer[j] - E->segment.nxlayer[j - 1]);
-  j = 1;
-  for (i = 2; i < E->mesh.nnx[1]; i++)
+  if (E->control.ORTHOZ == 0)
   {
-    if (i <= E->segment.nxlayer[j])
-      XX[1][i] = XX[1][i - 1] + dxx[j];
-    if (i == E->segment.nxlayer[j])
-      j++;
-  }
+    /* spreading direction */
 
-  for (j = 1; j < E->segment.zlayers; j++)
-    dxx[j] = (E->segment.zzlayer[j] - E->segment.zzlayer[j - 1]) / (E->segment.nzlayer[j] - E->segment.nzlayer[j - 1]);
-  j = 1;
-  for (i = 2; i < E->mesh.nnx[2]; i++)
-  {
-    if (i <= E->segment.nzlayer[j])
-      XX[2][i] = XX[2][i - 1] + dxx[j];
-    if (i == E->segment.nzlayer[j])
-      j++;
-  }
+    n00 = 1;
+    x00 = 0.0;
+    for (j = 0; j < E->segment.xlayers; j++)
+    {
+      dxx[j] = (E->segment.xxlayer[j] - x00) / (E->segment.nxlayer[j] - n00);
+      n00 = E->segment.nxlayer[j];
+      x00 = E->segment.xxlayer[j];
+    }
 
+    j = 0;
+    for (i = 2; i < E->mesh.nnx[1]; i++)
+    {
+      if (i <= E->segment.nxlayer[j])
+        XX[1][i] = XX[1][i - 1] + dxx[j];
+      if (i == E->segment.nxlayer[j])
+        j++;
+    }
+
+    /* vertical */
+    n00 = 1;
+    x00 = 0.0;
+    for (j = 0; j < E->segment.zlayers; j++)
+    {
+      dxx[j] = (E->segment.zzlayer[j] - x00) / (E->segment.nzlayer[j] - n00);
+      n00 = E->segment.nzlayer[j];
+      x00 = E->segment.zzlayer[j];
+    }
+
+    j = 0;
+    for (i = 2; i < E->mesh.nnx[2]; i++)
+    {
+      if (i <= E->segment.nzlayer[j])
+        XX[2][i] = XX[2][i - 1] + dxx[j];
+      if (i == E->segment.nzlayer[j])
+        j++;
+    }
+
+    /* 3rd dimension */
+    if (dims == 3)
+    {
+      n00 = 1;
+      x00 = 0.0;
+      for (j = 0; j < E->segment.ylayers; j++)
+      {
+        dxx[j] = (E->segment.yylayer[j] - x00) / (E->segment.nylayer[j] - n00);
+        n00 = E->segment.nylayer[j];
+        x00 = E->segment.yylayer[j];
+      }
+
+      j = 0;
+      for (i = 2; i < E->mesh.nnx[3]; i++)
+      {
+        if (i <= E->segment.nylayer[j])
+          XX[3][i] = XX[3][i - 1] + dxx[j];
+        if (i == E->segment.nylayer[j])
+          j++;
+      }
+    }
+  }
   /* VM - Global array with nodes coordinates */
   for (i = 1; i <= E->mesh.nnx[1]; i++)
-    E->mesh.globalXX[1][i] = (double)XX[1][i];
+    E->mesh.globalXX[1][i] = (float)XX[1][i];
   for (i = 1; i <= E->mesh.nnx[2]; i++)
-    E->mesh.globalXX[2][i] = (double)XX[2][i];
+    E->mesh.globalXX[2][i] = (float)XX[2][i];
   if (E->mesh.nsd == 3)
   {
     for (i = 1; i <= E->mesh.nnx[3]; i++)
-      E->mesh.globalXX[3][i] = (double)XX[3][i];
+      E->mesh.globalXX[3][i] = (float)XX[3][i];
   }
 
   lev = E->mesh.levmax;
@@ -105,10 +146,10 @@ void node_locations(E) struct All_variables *E;
   noz = E->lmesh.NOZ[lev];
 
   /* Fill E->XL array, a per-processor version of XX */
-  E->XL[1] = (double *)malloc((nox + 1) * sizeof(double));
-  E->XL[2] = (double *)malloc((noz + 1) * sizeof(double));
+  E->XL[1] = (float *)malloc((nox + 1) * sizeof(float));
+  E->XL[2] = (float *)malloc((noz + 1) * sizeof(float));
   if (E->mesh.nsd == 3)
-    E->XL[3] = (double *)malloc((noy + 1) * sizeof(double));
+    E->XL[3] = (float *)malloc((noy + 1) * sizeof(float));
   for (ix = 1; ix <= nox; ix++)
     E->XL[1][ix] = XX[1][ix - 1 + E->lmesh.NXS[lev]];
   for (iz = 1; iz <= noz; iz++)
@@ -139,22 +180,12 @@ void node_locations(E) struct All_variables *E;
     */
     for (ix = 1; ix <= nox; ix++)
       fprintf(E->fp, "XL[1][%d]=%.9e, E->XX=%.9e\n", ix,
-              E->XL[1][ix], E->XX[lev][1][1 + (ix - 1) * noz]);
+              E->XL[1][ix], E->XX[lev][1][1]);
     for (iz = 1; iz <= noz; iz++)
       fprintf(E->fp, "XL[2][%d]=%.9e\n", iz, E->XL[2][iz]);
     if (E->mesh.nsd == 3)
       for (iy = 1; iy <= noy; iy++)
         fprintf(E->fp, "XL[3][%d]=%.9e\n", ix, E->XL[3][iy]);
-
-    for (j = 1; j <= E->lmesh.noz; j++)
-      E->XP[2][j] = E->XX[E->mesh.levmax][2][j];
-    for (i = 1; i <= E->lmesh.nox; i++)
-      E->XP[1][i] = E->XX[E->mesh.levmax][1][1 + (i - 1) * E->lmesh.noz];
-    E->XG1[1] = 1.0e-6;
-    E->XG1[2] = 1.0e-6;
-
-    E->XG2[1] = E->mesh.layer[1] - 1.0e-6;
-    E->XG2[2] = E->mesh.layer[2] - 1.0e-6;
 
     if (E->control.testweirdmesh == 1)
     {
@@ -241,7 +272,7 @@ int level;
 }
 
 void flogical_mesh_to_real(E, data, level) struct All_variables *E;
-double *data;
+float *data;
 int level;
 
 {
@@ -280,11 +311,36 @@ int level;
   return;
 }
 
+void dp_to_nodes(E, P, PN, lev) struct All_variables *E;
+double *P;
+double *PN;
+int lev;
+
+{
+  int e, element, node, j;
+  void e_exchange_node_fc();
+  void exchange_node_f20();
+  for (node = 1; node <= E->lmesh.NNO[lev]; node++)
+    PN[node] = 0.0;
+
+  for (element = 1; element <= E->lmesh.NEL[lev]; element++)
+  {
+
+    for (j = 1; j <= enodes[E->mesh.nsd]; j++)
+    {
+      node = E->IEN[lev][element].node[j];
+      PN[node] += P[element] * E->TW[lev][node];
+    }
+  }
+  exchange_node_f20(E, PN, lev);
+  return;
+}
+
 void p_to_nodes(E, P, PN, lev)
     /* NB The use of E->TW is incorrect in combi with mesh refinement */
     struct All_variables *E;
 double *P;
-double *PN;
+float *PN;
 int lev;
 
 {
@@ -310,44 +366,10 @@ int lev;
   return;
 }
 
-void edot_to_nodes(E, P, PN, lev) /* As p_to_nodes, but input in single 
-                                  precision double */
-                                  /* NB The use of E->TW is incorrect in combi with mesh refinement */
-    struct All_variables *E;
-double *P;
-double *PN;
-int lev;
-
+void p_to_centres(struct All_variables *E, float *PN, double *P, int lev)
 {
-  int e, element, node, j;
-  void e_exchange_node_fc();
-  void exchange_node_f20();
-
-  for (node = 1; node <= E->lmesh.NNO[lev]; node++)
-    PN[node] = 0.0;
-
-  for (element = 1; element <= E->lmesh.NEL[lev]; element++)
-  {
-
-    for (j = 1; j <= enodes[E->mesh.nsd]; j++)
-    {
-      node = E->IEN[lev][element].node[j];
-      PN[node] += P[element] * E->TW[lev][node];
-    }
-  }
-
-  exchange_node_f20(E, PN, lev);
-
-  return;
-}
-
-void p_to_centres(E, PN, P, lev) struct All_variables *E;
-double *PN;
-double *P;
-int lev;
-
-{
-  int p, element, node, j;
+  //int p, element, node, j;
+  int p, j;
   double weight;
 
   for (p = 1; p <= E->lmesh.NEL[lev]; p++)
@@ -362,12 +384,10 @@ int lev;
   return;
 }
 
-void v_to_intpts(E, VN, VE, lev) struct All_variables *E;
-double *VN, *VE;
-int lev;
+void v_to_intpts(struct All_variables *E, float *VN, float *VE, int lev)
 {
-
-  int e, i, j, k;
+  //int e, i, j, k;
+  int e, i, j;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
@@ -381,11 +401,10 @@ int lev;
     }
 }
 
-void v_to_nodes(E, VE, VN, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
+void v_to_nodes(struct All_variables *E, float *VE, float *VN, int lev)
 {
-  int e, i, j, k, n;
+  //int e, i, j, k, n;
+  int e, i, j, n;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
@@ -403,12 +422,10 @@ int lev;
   return;
 }
 
-void visc_to_intpts(E, VN, VE, lev) struct All_variables *E;
-double *VN, *VE;
-int lev;
+void visc_to_intpts(struct All_variables *E, float *VN, float *VE, int lev)
 {
-
-  int e, i, j, k;
+  //int e, i, j, k;
+  int e, i, j;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
@@ -421,13 +438,13 @@ int lev;
         VE[(e - 1) * vpts + i] += log(VN[E->IEN[lev][e].node[j]]) * E->N.vpt[GNVINDEX(j, i)];
       VE[(e - 1) * vpts + i] = exp(VE[(e - 1) * vpts + i]);
     }
+  return;
 }
 
-void visc_to_nodes(E, VE, VN, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
+void visc_to_nodes(struct All_variables *E, float *VE, float *VN, int lev)
 {
-  int e, i, j, k, n;
+  //int e, i, j, k, n;
+  int e, i, j, n;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
@@ -445,18 +462,17 @@ int lev;
         temp_visc += E->TW[lev][n] * log(E->N.vpt[GNVINDEX(j, i)] * VE[(e - 1) * vpts + i]);
       VN[n] += exp(temp_visc);
     }
+
   return;
 }
 
-void visc_from_ele_to_gint(E, VN, VE, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
+void visc_from_ele_to_gint(struct All_variables *E, float *VN, float *VE, int lev)
 {
-
-  int m, e, i, j, k, n;
+  //int m, e, i, j, k, n;
+  int e, i;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
-  const int ends = enodes[nsd];
+  //const int ends = enodes[nsd];
 
   for (e = 1; e <= E->lmesh.NEL[lev]; e++)
     for (i = 1; i <= vpts; i++)
@@ -467,14 +483,13 @@ int lev;
   return;
 }
 
-void visc_from_gint_to_ele(E, VE, VN, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
+void visc_from_gint_to_ele(struct All_variables *E, float *VE, float *VN, int lev)
 {
-  int m, e, i, j, k, n;
+  //int m, e, i, j, k, n;
+  int e, i;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
-  const int ends = enodes[nsd];
+  //const int ends = enodes[nsd];
   double temp_visc;
 
   for (e = 1; e <= E->lmesh.NEL[lev]; e++)
@@ -490,39 +505,14 @@ int lev;
   return;
 }
 
-void visc_from_gint_to_elel(E, VE, VN, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
+void visc_from_gint_to_nodes(struct All_variables *E, float *VE, float *VN, int lev)
 {
-  int m, e, i, j, k, n;
+  //int m, e, i, j, k, n;
+  int e, i, j, n;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
   double temp_visc;
-
-  for (e = 1; e <= E->lmesh.NEL[lev]; e++)
-  {
-    temp_visc = 1.0;
-    for (i = 1; i <= vpts; i++)
-      temp_visc *= VE[(e - 1) * vpts + i];
-    temp_visc = pow(temp_visc, 1. / vpts);
-
-    VN[e] = temp_visc;
-  }
-
-  return;
-}
-
-void visc_from_gint_to_nodes(E, VE, VN, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
-{
-  int m, e, i, j, k, n;
-  const int nsd = E->mesh.nsd;
-  const int vpts = vpoints[nsd];
-  const int ends = enodes[nsd];
-  double temp_visc;
-  void exchange_node_f20();
 
   for (i = 1; i <= E->lmesh.NNO[lev]; i++)
     VN[i] = 0.0;
@@ -549,42 +539,10 @@ int lev;
   return;
 }
 
-void fld_from_elem_to_nodes(E, efld, nfld, lev) struct All_variables *E;
-double *efld, *nfld;
-int lev;
+void visc_from_nodes_to_gint(struct All_variables *E, float *VN, float *VE, int lev)
 {
-  int m, e, i, j, k, n;
-  const int nsd = E->mesh.nsd;
-  const int vpts = vpoints[nsd];
-  const int ends = enodes[nsd];
-  void exchange_node_f20();
-
-  for (i = 1; i <= E->lmesh.NNO[lev]; i++)
-    nfld[i] = 0.0;
-
-  for (e = 1; e <= E->lmesh.NEL[lev]; e++)
-  {
-    for (j = 1; j <= ends; j++)
-    {
-      n = E->IEN[lev][e].node[j];
-      nfld[n] += E->TWW[lev][e].node[j] * efld[e];
-    }
-  }
-
-  exchange_node_f20(E, nfld, lev);
-
-  for (n = 1; n <= E->lmesh.NNO[lev]; n++)
-    nfld[n] *= E->MASS[lev][n];
-
-  return;
-}
-
-void visc_from_nodes_to_gint(E, VN, VE, lev) struct All_variables *E;
-double *VE, *VN;
-int lev;
-{
-
-  int m, e, i, j, k, n;
+  //int m, e, i, j, k, n;
+  int e, i, j;
   const int nsd = E->mesh.nsd;
   const int vpts = vpoints[nsd];
   const int ends = enodes[nsd];
@@ -599,6 +557,7 @@ int lev;
       temp_visc = 0.0;
       for (j = 1; j <= ends; j++)
         temp_visc += E->N.vpt[GNVINDEX(j, i)] * VN[E->IEN[lev][e].node[j]];
+
       VE[(e - 1) * vpts + i] = temp_visc;
     }
 

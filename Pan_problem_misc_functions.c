@@ -49,8 +49,11 @@ void thermal_buoyancy(E) struct All_variables *E;
     void phase_change_basalt();
     void get_phase_buoyancy();
     slope = (E->data.therm_exp_factor - 1.0);
+    const int nno = E->lmesh.nno;
+    const int noz = E->lmesh.noz;
+    const int nox = E->lmesh.nox;
 
-    H = (double *)malloc((E->mesh.noz + 1) * sizeof(double));
+    H = (double *)malloc((noz + 1) * sizeof(double));
 
     if (abs(E->control.Ra_670) > 0.0 || abs(E->control.Ra_410) > 0.0)
     {
@@ -63,21 +66,21 @@ void thermal_buoyancy(E) struct All_variables *E;
         {
             phase_change(E, E->Fas670, E->Fas670_b, E->Fas410, E->Fas410_b);
         }
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= nno; i++)
             E->buoyancy[i] = -E->control.Ra_670 * E->Fas670[i] - E->control.Ra_410 * E->Fas410[i];
     }
     else
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= nno; i++)
             E->buoyancy[i] = 0.0;
 
     if (E->control.phasefile_buoyancy)
     {
         get_phase_buoyancy(E);
-        fprintf(stderr, "buoyancy phasefile finished\n");
+//        fprintf(stderr, "buoyancy phasefile finished\n");
         if (E->control.phasefile_buoyancy_depth > 0)
         {
             /* first get transition depth */
-            for (n = 1; n <= E->mesh.noz; n++)
+            for (n = 1; n <= noz; n++)
             {
                 coord_z = E->X[2][n];
                 coord_z_km = (1.0 - coord_z) * E->data.layer_km;
@@ -87,11 +90,11 @@ void thermal_buoyancy(E) struct All_variables *E;
                     break;
                 }
             }
-            for (m = 1; m <= E->mesh.nox; m++)
+            for (m = 1; m <= nox; m++)
             {
-                for (n = mark; n <= E->mesh.noz; n++)
+                for (n = mark; n <= noz; n++)
                 {
-                    num = n + E->mesh.noz * (m - 1);
+                    num = n + noz * (m - 1);
                     E->buoyancy[num] = E->control.Ra_temp * E->T[num] * (slope * E->X[2][num] + 1.0) - E->control.Ra_comp * E->C[num];
                 }
             }
@@ -103,7 +106,7 @@ void thermal_buoyancy(E) struct All_variables *E;
             {
                 loc_mid = E->control.velo_surf_loc_mid;
                 loc_mid += E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale;
-                for (n = 1; n <= E->mesh.noz; n++)
+                for (n = 1; n <= noz; n++)
                 {
                     coord_z = E->X[2][n];
                     if (coord_z >= E->viscosity.zlith)
@@ -113,11 +116,11 @@ void thermal_buoyancy(E) struct All_variables *E;
                     }
                 }
 
-                for (m = 1; m <= E->mesh.nox; m++)
+                for (m = 1; m <= nox; m++)
                 {
-                    for (n = mark; n <= E->mesh.noz; n++)
+                    for (n = mark; n <= noz; n++)
                     {
-                        num = n + E->mesh.noz * (m - 1);
+                        num = n + noz * (m - 1);
                         t1 = E->X[1][num];
                         r1 = E->X[2][num];
                         tempdist = (t1 - loc_mid) * tan(E->control.dip_margin * 3.14159265 / 180.0) + 1.0 - r1;
@@ -129,13 +132,14 @@ void thermal_buoyancy(E) struct All_variables *E;
                 }
             }
         }
+        if(E->parallel.me==0)
         fprintf(stderr, "continent phasefile finished\n");
 
         /* end continent correction */
         /* correction for crust denstiy */
         if (E->control.phasefile_buoyancy_crust > 0.0)
         {
-            for (n = 1; n <= E->mesh.noz; n++)
+            for (n = 1; n <= noz; n++)
             {
                 coord_z = E->X[2][n];
                 coord_z_km = (1.0 - coord_z) * E->data.layer_km;
@@ -146,11 +150,11 @@ void thermal_buoyancy(E) struct All_variables *E;
                 }
             }
 
-            for (m = 1; m <= E->mesh.nox; m++)
+            for (m = 1; m <= nox; m++)
             {
-                for (n = mark; n <= E->mesh.noz; n++)
+                for (n = mark; n <= noz; n++)
                 {
-                    num = n + E->mesh.noz * (m - 1);
+                    num = n + noz * (m - 1);
                     coord_z = E->X[2][n];
                     coord_z_km = (1.0 - coord_z) * E->data.layer_km;
                     if (coord_z_km >= E->control.phasefile_buoyancy_crust_depth)
@@ -163,14 +167,14 @@ void thermal_buoyancy(E) struct All_variables *E;
                 }
             }
         }
-        fprintf(stderr, "crust phasefile finished\n");
+//        fprintf(stderr, "crust phasefile finished\n");
 
         /* end crust correction */
     }
     else
     {
 
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= nno; i++)
         {
 
             /*  for constant density planet with g decreasing linearly with depth */
@@ -179,18 +183,21 @@ void thermal_buoyancy(E) struct All_variables *E;
 */
             /*  for constant g in the mantle */
             /*  first option is using density from phase diagram input files, the other is traditional way using Ra */
-            E->buoyancy[i] += E->control.Ra_temp * E->T[i] * (slope * E->X[2][i] + 1.0) - E->control.Ra_comp * E->C[i];
+            if (E->control.composition)
+                E->buoyancy[i] += E->control.Ra_temp * E->T[i] * (slope * E->X[2][i] + 1.0) - E->control.Ra_comp * E->C[i];
+            else
+                E->buoyancy[i] += E->control.Ra_temp * E->T[i] * (slope * E->X[2][i] + 1.0);
         }
     }
 
-    /*    for(i=1;i<=E->mesh.nno;i++)   {
+    /*    for(i=1;i<=E->lmesh.nno;i++)   {
         fprintf(stderr,"buoyancy %d %lf\n",i,E->buoyancy[i]);
 
     }
 */
     remove_horiz_ave(E, E->buoyancy, H, 0);
 
-    fprintf(stderr, "buoyancy phasefile finished\n");
+//    fprintf(stderr, "buoyancy phasefile finished\n");
 
     free((void *)H);
     return;
@@ -265,7 +272,7 @@ double *T, *TT;
 
     const int dims = E->mesh.nsd;
 
-    P = (double *)malloc((E->mesh.nno + 1) * sizeof(double));
+    P = (double *)malloc((E->lmesh.nno + 1) * sizeof(double));
 
     /* run over all the data points (take care to hit only one element), determine
        inside/outside of each element. The criterion for inside-ness is that the
@@ -292,7 +299,7 @@ double *T, *TT;
     not_found = 0;
 
     if (2 == dims)
-        for (i = 1; i <= E->mesh.nno; i++)
+        for (i = 1; i <= E->lmesh.nno; i++)
         {
             found = 0;
             for (ex = old_ex; ex <= elX && found == 0; ex++)
@@ -356,7 +363,7 @@ double *T, *TT;
     {
         elY = (3 == dims) ? ny - 1 : 1;
         fprintf(stderr, "3D interolator not yet implemented !!! \n");
-        vcopy(TT, T, 1, E->mesh.nno);
+        vcopy(TT, T, 1, E->lmesh.nno);
     }
 
     if (E->control.print_convergence)
@@ -451,7 +458,7 @@ unsigned int bcmask_on, bcmask_off;
     int number, node;
     int combine_option;
 
-    for (node = 1; node <= E->mesh.nno; node++)
+    for (node = 1; node <= E->lmesh.nno; node++)
     {
         x1 = E->X[1][node];
         z1 = E->X[2][node];
@@ -576,7 +583,7 @@ unsigned int bcmask_on, bcmask_off;
     int number, node;
     int combine_option;
 
-    for (node = 1; node <= E->mesh.nno; node++)
+    for (node = 1; node <= E->lmesh.nno; node++)
     {
         x1 = E->X[1][node];
         z1 = E->X[2][node];
@@ -715,7 +722,7 @@ unsigned int bcmask_on, bcmask_off;
     int number, node, l;
     int combine_option;
 
-    for (node = 1; node <= E->mesh.nno; node++)
+    for (node = 1; node <= E->lmesh.nno; node++)
     {
         x1 = E->X[1][node];
         z1 = E->X[2][node];
@@ -829,7 +836,7 @@ void get_phase_buoyancy(E) struct All_variables *E;
     int m, n, l, num, number1, number2, number3, number4, j, count_mineral, count_mat, temp_num_mineral;
     int left, right, mid;
     double r1, t1, loc_mid, tempdist;
-    const int nno = E->mesh.nno;
+    const int nno = E->lmesh.nno;
     int mark_P, mark_T, mark_P0_PREM = 160, mark_P_PREM;
     double coord_x, coord_z, temp, comp, coord_x_km, coord_z_km, T_C, P_GPa;
     double delta, delta1, delta2, delta_P, delta_T, delta_1, delta_2, delta_3, delta_4;
@@ -839,7 +846,7 @@ void get_phase_buoyancy(E) struct All_variables *E;
     static int mark_P_store[1001], mark_P_PREM_store[1001];
     if (!been_here)
     {
-        for (n = 1; n <= E->mesh.noz; n++)
+        for (n = 1; n <= E->lmesh.noz; n++)
         {
             mark_P_store[n] = E->control.phasefile_noP;
             mark_P_PREM_store[n] = mark_P0_PREM;
@@ -847,7 +854,7 @@ void get_phase_buoyancy(E) struct All_variables *E;
         mark_P = E->control.phasefile_noP;
         mark_P_PREM = mark_P0_PREM;
 
-        for (n = 1; n <= E->mesh.noz; n++)
+        for (n = 1; n <= E->lmesh.noz; n++)
         {
             num = n;
             coord_x = E->X[1][num];
@@ -878,28 +885,30 @@ void get_phase_buoyancy(E) struct All_variables *E;
                     break;
                 }
             }
-            if (n == E->mesh.noz)
+            if (n == E->lmesh.noz && E->parallel.me_loc[2] == E->parallel.nprocz - 1)
             {
                 mark_P_PREM_store[n] = 2;
                 mark_P_store[n] = 2;
             }
 
             mark_P = mark_P_store[n];
-            fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
+//            fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
         }
         been_here++;
     }
-    
-    for (m = 1; m <= E->mesh.nox; m++)
+    if(E->parallel.me==0)    
+    fprintf(stderr, "PREM finished\n");
+
+    for (m = 1; m <= E->lmesh.nox; m++)
     {
         mark_P = E->control.phasefile_noP;
         mark_T = E->control.phasefile_noT;
         mark_P_PREM = mark_P0_PREM;
-        for (n = 1; n <= E->mesh.noz; n++)
+        for (n = 1; n <= E->lmesh.noz; n++)
         {
             mark_P = mark_P_store[n];
             mark_P_PREM = mark_P_PREM_store[n];
-            num = n + E->mesh.noz * (m - 1);
+            num = n + E->lmesh.noz * (m - 1);
             coord_x = E->X[1][num];
             coord_z = E->X[2][num];
             temp = E->T[num];
@@ -924,24 +933,26 @@ void get_phase_buoyancy(E) struct All_variables *E;
             }
 
             /* trace from CMB to surface and get pressure from PREM density*/
-            /*            for(l=mark_P_PREM;l>=2;l--) {
+            for(l=mark_P_PREM;l>=2;l--) {
                 if(coord_z_km <= E->control.phase_PREM_depth[l] && coord_z_km >= E->control.phase_PREM_depth[l-1]) {
                     mark_P_PREM = l;
                     break;
                 }
             }
-*/
+//    fprintf(stderr, "mark_P_PREM\n");
+
             delta = E->control.phase_PREM_depth[mark_P_PREM] - E->control.phase_PREM_depth[mark_P_PREM - 1];
             delta1 = E->control.phase_PREM_depth[mark_P_PREM] - coord_z_km;
             delta2 = coord_z_km - E->control.phase_PREM_depth[mark_P_PREM - 1];
             P_GPa = E->control.phase_PREM_P[mark_P_PREM] * delta2 / delta + E->control.phase_PREM_P[mark_P_PREM - 1] * delta1 / delta;
-            /*            for(l=mark_P;l>=2;l--) {
+            for(l=mark_P;l>=2;l--) {
                 if(P_GPa<=E->control.phase_P[l] && P_GPa>=E->control.phase_P[l-1]) {
                     mark_P = l;
                     break;
                 }
             }
-*/
+//    fprintf(stderr, "mark_P\n");
+
             left = 2;
             right = E->control.phasefile_noT;
             mid = (E->control.phasefile_noT + 1) / 2;
@@ -988,6 +999,7 @@ void get_phase_buoyancy(E) struct All_variables *E;
                 delta_4 = 0.0;
                 delta_T = 1.0;
             }
+//    fprintf(stderr, "delta\n");
 
             // 1 basalt, 0 pyrolite, 2 harzburgite
             den_mineral[1] = E->control.phase_basa_density[number1] * delta_1 / delta_P * delta_3 / delta_T + E->control.phase_basa_density[number2] * delta_2 / delta_P * delta_3 / delta_T + E->control.phase_basa_density[number3] * delta_1 / delta_P * delta_4 / delta_T + E->control.phase_basa_density[number4] * delta_2 / delta_P * delta_4 / delta_T;
@@ -999,10 +1011,11 @@ void get_phase_buoyancy(E) struct All_variables *E;
             den_mineral[2] = E->control.phase_harz_density[number1] * delta_1 / delta_P * delta_3 / delta_T + E->control.phase_harz_density[number2] * delta_2 / delta_P * delta_3 / delta_T + E->control.phase_harz_density[number3] * delta_1 / delta_P * delta_4 / delta_T + E->control.phase_harz_density[number4] * delta_2 / delta_P * delta_4 / delta_T;
             Vp_mineral[2] = E->control.phase_harz_Vp[number1] * delta_1 / delta_P * delta_3 / delta_T + E->control.phase_harz_Vp[number2] * delta_2 / delta_P * delta_3 / delta_T + E->control.phase_harz_Vp[number3] * delta_1 / delta_P * delta_4 / delta_T + E->control.phase_harz_Vp[number4] * delta_2 / delta_P * delta_4 / delta_T;
             Vs_mineral[2] = E->control.phase_harz_Vs[number1] * delta_1 / delta_P * delta_3 / delta_T + E->control.phase_harz_Vs[number2] * delta_2 / delta_P * delta_3 / delta_T + E->control.phase_harz_Vs[number3] * delta_1 / delta_P * delta_4 / delta_T + E->control.phase_harz_Vs[number4] * delta_2 / delta_P * delta_4 / delta_T;
-
+//    fprintf(stderr, "inter before %d\n", num);
             E->density_phase[num] = den_mineral[1] * E->C[num] + den_mineral[2] * (1.0 - E->C[num]);
             E->Vp_phase[num] = Vp_mineral[1] * E->C[num] + Vp_mineral[2] * (1.0 - E->C[num]);
             E->Vs_phase[num] = Vs_mineral[1] * E->C[num] + Vs_mineral[2] * (1.0 - E->C[num]);
+//    fprintf(stderr, "inter\n");
 
             if (delta_2 < 0 || delta_4 < 0)
             {
@@ -1027,7 +1040,7 @@ void get_phase_buoyancy(E) struct All_variables *E;
                     E->Vs_phase[num] += Vs_mineral[temp_num_mineral] * E->C_phasefile_nno[count_mat][num];
                 }
             }
-            E->buoyancy[num] -= E->density_phase[num] * E->control.Ra_temp / (E->data.therm_exp * E->data.ref_temperature * E->data.density);
+//    fprintf(stderr, "after buoyancy inter\n");
 
             /* continent correction */
             if (E->control.phasefile_buoyancy_correction)
@@ -1060,8 +1073,13 @@ void get_phase_buoyancy(E) struct All_variables *E;
                     }
                 }
             }
+//    fprintf(stderr, "start buoyancy finished\n");
 
+            E->buoyancy[num] -= E->density_phase[num] * E->control.Ra_temp / (E->data.therm_exp * E->data.ref_temperature * E->data.density);
         } // end of noz
     }     // end of nox
+    if(E->parallel.me==0)
+    fprintf(stderr, "buoyancy phasefile finished\n");
+
     return;
 }

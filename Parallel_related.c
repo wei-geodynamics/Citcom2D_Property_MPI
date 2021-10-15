@@ -39,7 +39,9 @@
  * ported to other platforms, T3E, and Linux clusters.
  */
 
+#if 1
 #include <mpi.h>
+#endif
 
 #include <math.h>
 #include "element_definitions.h"
@@ -95,61 +97,44 @@ void parallel_domain_decomp1(struct All_variables *E)
 
 	E->lmesh.elx = E->mesh.elx / E->parallel.nprocx;
 	E->lmesh.elz = E->mesh.elz / E->parallel.nprocz;
+	E->lmesh.ely = E->mesh.ely / E->parallel.nprocy;
 
-	if (E->mesh.nsd == 3)
-	{
-		E->lmesh.ely = E->mesh.ely / E->parallel.nprocy;
-		E->parallel.nprocxz = E->parallel.nprocx * E->parallel.nprocz;
-		E->parallel.nprocxy = E->parallel.nprocx * E->parallel.nprocy;
-		E->parallel.nproczy = E->parallel.nprocz * E->parallel.nprocy;
-	}
+	E->parallel.nprocxz = E->parallel.nprocx * E->parallel.nprocz;
+	E->parallel.nprocxy = E->parallel.nprocx * E->parallel.nprocy;
+	E->parallel.nproczy = E->parallel.nprocz * E->parallel.nprocy;
 
 	/* for overlapping domain, good for e by e assemble */
 
-	/* z direction first */
-	if (E->mesh.nsd == 2)
-	{
-		j = me % E->parallel.nprocz;
-		E->parallel.me_loc[2] = j;
-		E->lmesh.nzs = j * E->lmesh.elz + 1;
-		k = (me + 1) / E->parallel.nprocz - (((me + 1) % E->parallel.nprocz == 0) ? 1 : 0);
-		E->parallel.me_loc[1] = k;
-		E->lmesh.nxs = k * E->lmesh.elx + 1;
-	}
+	j = me % E->parallel.nprocz;
+	E->parallel.me_loc[2] = j;
+	E->lmesh.nzs = j * E->lmesh.elz + 1; /* 1st node for proc me in z-dir */
 
-	if (E->mesh.nsd == 3)
-	{
-		j = me % E->parallel.nprocz;
-		E->parallel.me_loc[3] = j;
-		E->lmesh.nzs = j * E->lmesh.elz + 1;
-		/* y direction then */
-		k = (me + 1) / E->parallel.nprocxz - (((me + 1) % E->parallel.nprocxz == 0) ? 1 : 0);
-		E->parallel.me_loc[2] = k;
-		E->lmesh.nys = k * E->lmesh.ely + 1;
-		/* x direction then */
-		i = (me + 1 - k * E->parallel.nprocxz) / E->parallel.nprocz - (((me + 1 - k * E->parallel.nprocxz) % E->parallel.nprocz == 0) ? 1 : 0);
-		E->parallel.me_loc[1] = i;
-		E->lmesh.nxs = i * E->lmesh.elx + 1;
-	}
+	/* y direction then */
+	k = (me + 1) / E->parallel.nprocxz - (((me + 1) % E->parallel.nprocxz == 0) ? 1 : 0);
+	E->parallel.me_loc[3] = k;
+	E->lmesh.nys = k * E->lmesh.ely + 1; /* 1st node for proc me in y-dir */
 
-	/*fprintf(stderr,"b %d %d %d %d %d %d %d\n",E->parallel.me,E->parallel.me_loc[1],E->parallel.me_loc[2],E->parallel.me_loc[3],E->lmesh.nxs,E->lmesh.nzs,E->lmesh.nys); */
+	/* x direction then */
+	i = (me + 1 - k * E->parallel.nprocxz) / E->parallel.nprocz - (((me + 1 - k * E->parallel.nprocxz) % E->parallel.nprocz == 0) ? 1 : 0);
+	E->parallel.me_loc[1] = i;
+	E->lmesh.nxs = i * E->lmesh.elx + 1; /* 1st node for proc me in x-dir */
+
+	fprintf(stderr, "b %d %d %d %d %d %d %d\n", E->parallel.me, E->parallel.me_loc[1], E->parallel.me_loc[2], E->parallel.me_loc[3], E->lmesh.nxs, E->lmesh.nzs, E->lmesh.nys);
 
 	E->lmesh.nox = E->lmesh.nnx[1] = E->lmesh.elx + 1;
-
 	E->lmesh.noz = E->lmesh.nnx[2] = E->lmesh.elz + 1;
+	if (E->mesh.nsd == 2)
+		E->lmesh.noy = E->lmesh.nnx[3] = 1;
+	else if (E->mesh.nsd == 3)
+		E->lmesh.noy = E->lmesh.nnx[3] = E->lmesh.ely + 1;
 
-	E->lmesh.nno = E->lmesh.noz * E->lmesh.nox ;
-	E->lmesh.nsf = E->lmesh.nox ;
-	E->lmesh.npno = E->lmesh.elz * E->lmesh.elx ;
-	E->lmesh.nel = E->lmesh.elz * E->lmesh.elx;
+	E->lmesh.nno = E->lmesh.noz * E->lmesh.nox * E->lmesh.noy;
+	E->lmesh.nsf = E->lmesh.nox * E->lmesh.noy;
+	E->lmesh.npno = E->lmesh.elz * E->lmesh.elx * E->lmesh.ely;
+	E->lmesh.nel = E->lmesh.elz * E->lmesh.elx * E->lmesh.ely;
 	E->lmesh.nex[1] = E->lmesh.elx;
 	E->lmesh.nex[2] = E->lmesh.elz;
-	if (E->mesh.nsd == 3)
-	{
-
-		E->lmesh.nex[2] = E->lmesh.ely;
-		E->lmesh.noy = E->lmesh.nnx[2] = E->lmesh.ely + 1;
-	}
+	E->lmesh.nex[3] = E->lmesh.ely;
 	E->lmesh.nnov = E->lmesh.nno;
 	E->lmesh.neq = E->lmesh.nnov * E->mesh.nsd;
 
@@ -159,24 +144,32 @@ void parallel_domain_decomp1(struct All_variables *E)
 		{
 			nox = E->lmesh.elx / ((int)pow(2.0, (double)(E->mesh.levmax - i))) + 1;
 			noz = E->lmesh.elz / ((int)pow(2.0, (double)(E->mesh.levmax - i))) + 1;
+			if (E->mesh.nsd == 3)
+				noy = E->lmesh.ely / ((int)pow(2.0, (double)(E->mesh.levmax - i))) + 1;
+			else
+				noy = 1;
 		}
 		else
 		{
 			nox = E->lmesh.nox;
 			noz = E->lmesh.noz;
+			noy = E->lmesh.noy;
 		}
 
 		E->lmesh.ELX[i] = nox - 1;
 		E->lmesh.ELZ[i] = noz - 1;
-		E->lmesh.NNO[i] = nox * noz;
-		E->lmesh.NEL[i] = (nox - 1) * (noz - 1);
+		E->lmesh.ELY[i] = max(noy - 1, 1);
+		E->lmesh.NNO[i] = nox * noz * noy;
+		E->lmesh.NEL[i] = (nox - 1) * (noz - 1) * max((noy - 1), 1);
 		E->lmesh.NPNO[i] = E->lmesh.NEL[i];
 		E->lmesh.NOX[i] = nox;
 		E->lmesh.NOZ[i] = noz;
+		E->lmesh.NOY[i] = noy;
 		E->lmesh.NNOV[i] = E->lmesh.NNO[i];
 		E->lmesh.NEQ[i] = E->mesh.nsd * E->lmesh.NNOV[i];
 		E->lmesh.NXS[i] = E->parallel.me_loc[1] * E->lmesh.ELX[i] + 1;
-		E->lmesh.NZS[i] = E->parallel.me_loc[3] * E->lmesh.ELZ[i] + 1;
+		E->lmesh.NZS[i] = E->parallel.me_loc[2] * E->lmesh.ELZ[i] + 1;
+		E->lmesh.NYS[i] = E->parallel.me_loc[3] * E->lmesh.ELY[i] + 1;
 		/*fprintf(E->fp,"b %d %d %d %d %d %d %d\n",E->parallel.me,E->lmesh.ELX[i],E->lmesh.ELZ[i],E->lmesh.ELY[i],E->lmesh.NNO[i],E->lmesh.NEL[i],E->lmesh.NEQ[i]); */
 	}
 
@@ -190,6 +183,8 @@ void parallel_domain_decomp1(struct All_variables *E)
 
 void parallel_shuffle_ele_and_id(struct All_variables *E)
 {
+    void parallel_shuffle_ele_and_id_bc1();
+    void parallel_shuffle_ele_and_id_bc2();
 	if (E->mesh.periodic_x || E->mesh.periodic_y)
 		parallel_shuffle_ele_and_id_bc2(E);
 	else
@@ -210,8 +205,9 @@ void parallel_shuffle_ele_and_id_bc1(struct All_variables *E)
 		nel = E->lmesh.NEL[lev];
 		elx = E->lmesh.ELX[lev];
 		elz = E->lmesh.ELZ[lev];
-		
+		ely = E->lmesh.ELY[lev];
 		nox = E->lmesh.NOX[lev];
+		noy = E->lmesh.NOY[lev];
 		noz = E->lmesh.NOZ[lev];
 
 		ii = 0;
@@ -221,7 +217,7 @@ void parallel_shuffle_ele_and_id_bc1(struct All_variables *E)
 			ii++;
 			if ((i == 1 && E->parallel.me_loc[1] != 0) || (i == 2 && E->parallel.me_loc[1] != E->parallel.nprocx - 1))
 			{
-				for (k = 1; k <= 1; k++)
+				for (k = 1; k <= noy; k++)
 					for (j = 1; j <= noz; j++)
 					{
 						node = j + (((i == 1) ? 1 : nox) - 1) * noz + (k - 1) * noz * nox;
@@ -232,7 +228,7 @@ void parallel_shuffle_ele_and_id_bc1(struct All_variables *E)
 						node1 = node + (((i == 1) ? 1 : -1)) * noz;
 						E->NODE[lev][node1] = E->NODE[lev][node1] | LIDN;
 					}
-				E->parallel.NUM_NNO[lev].bound[1][i] = 1 * noz;
+				E->parallel.NUM_NNO[lev].bound[1][i] = noy * noz;
 			}
 		} /* end for i   */
 
@@ -241,7 +237,7 @@ void parallel_shuffle_ele_and_id_bc1(struct All_variables *E)
 			ii++;
 			if ((j == 1 && E->parallel.me_loc[2] != 0) || (j == 2 && E->parallel.me_loc[2] != E->parallel.nprocz - 1))
 			{
-				for (k = 1; k <= 1; k++)
+				for (k = 1; k <= noy; k++)
 					for (i = 1; i <= nox; i++)
 					{
 						node = ((j == 1) ? 1 : noz) + (i - 1) * noz + (k - 1) * noz * nox;
@@ -252,11 +248,32 @@ void parallel_shuffle_ele_and_id_bc1(struct All_variables *E)
 						node1 = node + (((j == 1) ? 1 : -1));
 						E->NODE[lev][node1] = E->NODE[lev][node1] | LIDN;
 					}
-				E->parallel.NUM_NNO[lev].bound[2][j] = nox * 1;
+				E->parallel.NUM_NNO[lev].bound[2][j] = nox * noy;
 			}
 		} /* end for j   */
 
-		
+		if (E->mesh.nsd == 3)
+		{
+			for (k = 1; k <= 2; k++)
+			{ /* do XOZ boundary elements for 3D */
+				ii++;
+				if ((k == 1 && E->parallel.me_loc[3] != 0) || (k == 2 && E->parallel.me_loc[3] != E->parallel.nprocy - 1))
+				{
+					for (j = 1; j <= noz; j++)
+						for (i = 1; i <= nox; i++)
+						{
+							node = j + (i - 1) * noz + (((k == 1) ? 1 : noy) - 1) * noz * nox;
+							llnode = j + (i - 1) * noz;
+							E->parallel.NODE[lev][llnode].bound[1][i] = node;
+							E->NODE[lev][node] = E->NODE[lev][node] | OFFSIDE;
+							E->NODE[lev][node] = E->NODE[lev][node] | LIDN;
+							node1 = node + (((k == 1) ? 1 : -1)) * noz * nox;
+							E->NODE[lev][node1] = E->NODE[lev][node1] | LIDN;
+						}
+					E->parallel.NUM_NNO[lev].bound[1][i] = nox * noz;
+				} /* end for k */
+			}	  /* end for k */
+		}		  /* end for dims=3  */
 
 		E->parallel.num_b = ii;
 
@@ -354,6 +371,10 @@ void parallel_shuffle_ele_and_id_bc2(struct All_variables *E)
 
 void parallel_communication_routs(struct All_variables *E)
 {
+   void parallel_communication_routs1();
+   void parallel_communication_routs2();
+   void parallel_communication_routs3();
+   void parallel_communication_routs4();
 	if (E->mesh.periodic_x || E->mesh.periodic_y)
 	{
 		parallel_communication_routs2(E);
@@ -389,7 +410,7 @@ void parallel_communication_routs1(struct All_variables *E)
 		ely = 1;
 		noy = 1;
 		nox = E->lmesh.NOX[lev];
-		
+
 		noz = E->lmesh.NOZ[lev];
 		nno = E->lmesh.NNO[lev];
 
@@ -479,6 +500,8 @@ void parallel_communication_routs1(struct All_variables *E)
 			}	  /* end for loop j */
 
 		} /* end for 2D */
+
+		/* end for 2D */
 
 		else if (E->mesh.nsd == 3)
 		{
@@ -854,20 +877,20 @@ void parallel_communication_routs3(struct All_variables *E)
 
 	for (k = -1; k <= 1; k++)
 		for (i = -1; i <= 1; i++)
+		{
+			m1 = E->parallel.me_loc[1] + i;
+			m2 = E->parallel.me_loc[2] + k;
+			if (m1 >= 0 && m1 < nprocx && m2 >= 0 && m2 < nprocz)
 			{
-				m1 = E->parallel.me_loc[1] + i;
-				m2 = E->parallel.me_loc[2] + k;
-				if (m1 >= 0 && m1 < nprocx && m2 >= 0 && m2 < nprocz)
+				proc = m2 + m1 * nprocz;
+				if (proc != me)
 				{
-					proc = m2 + m1 * nprocz;
-					if (proc != me)
-					{
-						E->parallel.no_neighbors++;
-						E->parallel.neighbors[E->parallel.no_neighbors] = proc;
-						E->parallel.neighbors_rev[proc] = E->parallel.no_neighbors;
-					}
+					E->parallel.no_neighbors++;
+					E->parallel.neighbors[E->parallel.no_neighbors] = proc;
+					E->parallel.neighbors_rev[proc] = E->parallel.no_neighbors;
 				}
 			}
+		}
 
 	for (i = 1; i <= E->parallel.no_neighbors; i++)
 		fprintf(E->fp, "aaa %d %d %d\n", i, E->parallel.neighbors[i], E->parallel.neighbors_rev[E->parallel.neighbors[i]]);
@@ -988,11 +1011,23 @@ void exchange_markers(struct All_variables *E)
 			MPI_Isend(E->PVV[k], kk, MPI_DOUBLE, target_proc, 2, MPI_COMM_WORLD, &request[idb - 1]);
 			idb++;
 			MPI_Isend(E->PXX[k], kk, MPI_DOUBLE, target_proc, 3, MPI_COMM_WORLD, &request[idb - 1]);
+		
+			if (E->control.phasefile_C || E->control.phasefile_Complete)
+			{
+				idb++;
+				kk = E->parallel.traces_transfer_number[k] * E->C_phasefile_markers_int_num_store + 1;
+				MPI_Isend(E->PC_INT[k], kk, MPI_INT, target_proc, 4, MPI_COMM_WORLD, &request[idb - 1]);
+				idb++;
+				kk = E->parallel.traces_transfer_number[k] * E->C_phasefile_markers_double_num_store + 1;
+				MPI_Isend(E->PC_DB[k], kk, MPI_DOUBLE, target_proc, 5, MPI_COMM_WORLD, &request[idb - 1]);
+			}
+
 		}
 	} /* for k */
 
 	for (k = 1; k <= E->parallel.no_neighbors; k++)
 	{
+
 		if (E->parallel.traces_receive_number[k] > 0)
 		{
 			target_proc = E->parallel.neighbors[k];
@@ -1004,11 +1039,20 @@ void exchange_markers(struct All_variables *E)
 			MPI_Irecv(E->RVV[k], kk, MPI_DOUBLE, target_proc, 2, MPI_COMM_WORLD, &request[idb - 1]);
 			idb++;
 			MPI_Irecv(E->RXX[k], kk, MPI_DOUBLE, target_proc, 3, MPI_COMM_WORLD, &request[idb - 1]);
+			if (E->control.phasefile_C || E->control.phasefile_Complete)
+			{
+				idb++;
+				kk = E->parallel.traces_receive_number[k] * E->C_phasefile_markers_int_num_store + 1;
+				MPI_Irecv(E->RC_INT[k], kk, MPI_INT, target_proc, 4, MPI_COMM_WORLD, &request[idb - 1]);
+				idb++;
+				kk = E->parallel.traces_receive_number[k] * E->C_phasefile_markers_double_num_store + 1;
+				MPI_Irecv(E->RC_DB[k], kk, MPI_DOUBLE, target_proc, 5, MPI_COMM_WORLD, &request[idb - 1]);
+			} 
 		}
 	} /* for k */
 
 	MPI_Waitall(idb, request, status);
-
+        fprintf(stderr, "CPU %d finish all exchange\n", E->parallel.me);
 	return;
 }
 

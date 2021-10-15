@@ -56,6 +56,11 @@ void Runge_Kutta(struct All_variables *E, double *C, double *V[4], int on_off)
 {
 	int i;
 	double temp1, temp2, temp3;
+	void velocity_markers();
+	void transfer_markers_processors();
+	void element_markers();
+	void get_C_from_markers();
+	void get_C_from_markers_multi();
 
 	/*   predicted velocity Vpred at predicted marker positions at t+dt  */
 	velocity_markers(E, V, on_off);
@@ -89,7 +94,11 @@ void Euler(struct All_variables *E, double *C, double *V[4], int on_off)
 {
 	int i;
 	double temp1, temp2, temp3;
-
+	void velocity_markers();
+	void transfer_markers_processors();
+	void element_markers();
+	void get_C_from_markers();
+	void get_C_from_markers_multi();
 	/*   velocity VO at t and x=XMC  */
 	velocity_markers(E, V, on_off);
 
@@ -125,6 +134,11 @@ void transfer_markers_processors(struct All_variables *E, int on_off)
 	static int markers;
 
 	const int me = E->parallel.me;
+	void prepare_transfer_arrays();
+	int locate_processor();
+	void exchange_number_rec_markers();
+	void exchange_markers();
+	void unify_markers_array();
 
 	if (been == 0)
 	{
@@ -132,12 +146,23 @@ void transfer_markers_processors(struct All_variables *E, int on_off)
 		for (neighbor = 1; neighbor <= E->parallel.no_neighbors; neighbor++)
 		{
 			E->parallel.traces_transfer_index[neighbor] = (int *)malloc((markers + 1) * sizeof(int));
+
 			E->RVV[neighbor] = (double *)malloc((markers + 1) * E->mesh.nsd * 2 * sizeof(int));
 			E->RXX[neighbor] = (double *)malloc((markers + 1) * E->mesh.nsd * 2 * sizeof(double));
 			E->RINS[neighbor] = (int *)malloc((markers + 1) * 2 * sizeof(int));
+
 			E->PVV[neighbor] = (double *)malloc((markers + 1) * E->mesh.nsd * 2 * sizeof(int));
 			E->PXX[neighbor] = (double *)malloc((markers + 1) * E->mesh.nsd * 2 * sizeof(double));
 			E->PINS[neighbor] = (int *)malloc((markers + 1) * 2 * sizeof(int));
+
+			if (E->control.phasefile_C || E->control.phasefile_Complete)
+			{
+				E->RC_INT[neighbor] = (int *)malloc((markers + 1) * E->C_phasefile_markers_int_num_store * sizeof(int));
+				E->RC_DB[neighbor] = (double *)malloc((markers + 1) * E->C_phasefile_markers_double_num_store * sizeof(double));
+
+				E->PC_INT[neighbor] = (int *)malloc((markers + 1) * E->C_phasefile_markers_int_num_store * sizeof(int));
+				E->PC_DB[neighbor] = (double *)malloc((markers + 1) * E->C_phasefile_markers_double_num_store * sizeof(double));
+			}
 		}
 		E->traces_leave_index = (int *)malloc((markers + 1) * sizeof(int));
 		been++;
@@ -235,7 +260,7 @@ void transfer_markers_processors(struct All_variables *E, int on_off)
 void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 {
 	int i, j;
-	int ii, jj, kk;
+	int ii, jj, kk, l;
 	int nsd2, neighbor, no_trans1;
 
 	nsd2 = E->mesh.nsd * 2;
@@ -256,7 +281,7 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 		fflush(E->fp);
 		parallel_process_termination();
 	}
-
+//        fprintf(stderr, "CPU %d transfer array %d\n", E->parallel.me, E->C_phasefile_markers_int_num_store);
 	ii = jj = 0;
 	if (E->advection.markers1 >= E->advection.markers)
 	{
@@ -273,22 +298,33 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 				E->VO[1][ii] = E->RVV[neighbor][j * nsd2];
 				E->VO[2][ii] = E->RVV[neighbor][j * nsd2 + 1];
 
-				E->Vpred[1][ii] = E->RVV[neighbor][j * nsd2 + 3];
-				E->Vpred[2][ii] = E->RVV[neighbor][j * nsd2 + 4];
+				E->Vpred[1][ii] = E->RVV[neighbor][j * nsd2 + 2];
+				E->Vpred[2][ii] = E->RVV[neighbor][j * nsd2 + 3];
 
 				E->XMC[1][ii] = E->RXX[neighbor][j * nsd2];
 				E->XMC[2][ii] = E->RXX[neighbor][j * nsd2 + 1];
 
-				E->XMCpred[1][ii] = E->RXX[neighbor][j * nsd2 + 3];
-				E->XMCpred[2][ii] = E->RXX[neighbor][j * nsd2 + 4];
+				E->XMCpred[1][ii] = E->RXX[neighbor][j * nsd2 + 2];
+				E->XMCpred[2][ii] = E->RXX[neighbor][j * nsd2 + 3];
 
 				E->C12[ii] = E->RINS[neighbor][j * 2];
 				E->CElement[ii] = E->RINS[neighbor][j * 2 + 1];
 				E->traces_leave[ii] = 0;
+
+				if (E->control.phasefile_C || E->control.phasefile_Complete)
+				{
+					for (l = 0; l < E->C_phasefile_markers_int_num_store; l++)
+					{
+						E->C_phasefile_marker_int[l][ii] = E->RC_INT[neighbor][j * E->C_phasefile_markers_int_num_store + l];
+					}
+					for (l = 0; l < E->C_phasefile_markers_double_num_store; l++)
+					{
+						E->C_phasefile_marker_double[l][ii] = E->RC_DB[neighbor][j * E->C_phasefile_markers_double_num_store + l];
+					}
+				}
 			}
 		}
 	}
-
 	else if (E->advection.markers1 < E->advection.markers)
 	{
 		for (neighbor = 1; neighbor <= E->parallel.no_neighbors; neighbor++)
@@ -300,17 +336,30 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 				E->VO[1][ii] = E->RVV[neighbor][j * nsd2];
 				E->VO[2][ii] = E->RVV[neighbor][j * nsd2 + 1];
 
-				E->Vpred[1][ii] = E->RVV[neighbor][j * nsd2 + 3];
-				E->Vpred[2][ii] = E->RVV[neighbor][j * nsd2 + 4];
+				E->Vpred[1][ii] = E->RVV[neighbor][j * nsd2 + 2];
+				E->Vpred[2][ii] = E->RVV[neighbor][j * nsd2 + 3];
 
 				E->XMC[1][ii] = E->RXX[neighbor][j * nsd2];
 				E->XMC[2][ii] = E->RXX[neighbor][j * nsd2 + 1];
 
-				E->XMCpred[1][ii] = E->RXX[neighbor][j * nsd2 + 3];
-				E->XMCpred[2][ii] = E->RXX[neighbor][j * nsd2 + 4];
+				E->XMCpred[1][ii] = E->RXX[neighbor][j * nsd2 + 2];
+				E->XMCpred[2][ii] = E->RXX[neighbor][j * nsd2 + 3];
 
 				E->C12[ii] = E->RINS[neighbor][j * 2];
 				E->CElement[ii] = E->RINS[neighbor][j * 2 + 1];
+
+				if (E->control.phasefile_C || E->control.phasefile_Complete)
+				{
+					for (l = 0; l < E->C_phasefile_markers_int_num_store; l++)
+					{
+						E->C_phasefile_marker_int[l][ii] = E->RC_INT[neighbor][j * E->C_phasefile_markers_int_num_store + l];
+					}
+					for (l = 0; l < E->C_phasefile_markers_double_num_store; l++)
+					{
+						E->C_phasefile_marker_double[l][ii] = E->RC_DB[neighbor][j * E->C_phasefile_markers_double_num_store + l];
+					}
+				}
+
 				E->traces_leave[ii] = 0;
 			}
 		}
@@ -342,6 +391,19 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 
 					E->C12[ii] = E->C12[i];
 					E->CElement[ii] = E->CElement[i];
+
+					if (E->control.phasefile_C || E->control.phasefile_Complete)
+					{
+						for (l = 0; l < E->C_phasefile_markers_int_num_store; l++)
+						{
+							E->C_phasefile_marker_int[l][ii] = E->C_phasefile_marker_int[l][i];
+						}
+						for (l = 0; l < E->C_phasefile_markers_double_num_store; l++)
+						{
+							E->C_phasefile_marker_double[l][ii] = E->C_phasefile_marker_double[l][i];
+						}
+					}
+
 					E->traces_leave[ii] = 0;
 				}
 			}
@@ -360,11 +422,11 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 
 void prepare_transfer_arrays(struct All_variables *E)
 {
-	int j, i, neighbor, k1, k2, k3;
+	int j, i, l, neighbor, k1, k2, k3, k4, k5;
 
 	for (neighbor = 1; neighbor <= E->parallel.no_neighbors; neighbor++)
 	{
-		k1 = k2 = k3 = 0;
+		k1 = k2 = k3 = k4 = k5 = 0;
 		for (j = 0; j < E->parallel.traces_transfer_number[neighbor]; j++)
 		{
 			i = E->parallel.traces_transfer_index[neighbor][j];
@@ -382,6 +444,18 @@ void prepare_transfer_arrays(struct All_variables *E)
 
 			E->PINS[neighbor][k3++] = E->C12[i];
 			E->PINS[neighbor][k3++] = E->CElement[i];
+
+			if (E->control.phasefile_C || E->control.phasefile_Complete)
+			{
+				for (l = 0; l < E->C_phasefile_markers_int_num_store; l++)
+				{
+					E->PC_INT[neighbor][k4++] = E->C_phasefile_marker_int[l][i];
+				}
+				for (l = 0; l < E->C_phasefile_markers_double_num_store; l++)
+				{
+					E->PC_DB[neighbor][k5++] = E->C_phasefile_marker_double[l][i];
+				}
+			}
 		}
 	}
 
@@ -474,8 +548,9 @@ void get_C_from_markers(struct All_variables *E, double *C)
 		}
 		E->CE[el] = temp3;
 	}
-
+//	fprintf(stderr, "CPU %d before exchange C", E->parallel.me);
 	exchange_node_f20(E, C, E->mesh.levmax);
+//	fprintf(stderr, "CPU %d after exchange C", E->parallel.me);
 
 	for (node = 1; node <= nno; node++)
 	{
@@ -509,6 +584,7 @@ int *Element;
 	const int dims = E->mesh.nsd;
 	const int ends = enodes[dims];
 	const int lev = E->mesh.levmax;
+//        fprintf(stderr, "before initial element %d \n", E->parallel.me);
 
 	if (been_here == 0)
 	{
@@ -518,7 +594,7 @@ int *Element;
 			element[m] = (int *)malloc((nel + 1) * sizeof(int));
 		}
 	}
-	fprintf(stderr, "finish initial element \n");
+//	fprintf(stderr, "finish initial element %d \n", E->parallel.me);
 
 	for (el = 1; el <= nel; el++)
 	{
@@ -528,7 +604,7 @@ int *Element;
 		}
 	}
 
-	fprintf(stderr, "start initial nno \n");
+	//fprintf(stderr, "start initial nno %d\n",  E->parallel.me);
 
 	for (i = 1; i <= nno; i++)
 	{
@@ -538,7 +614,7 @@ int *Element;
 		}
 	}
 	/* for each element, count dense and regular marks  */
-	fprintf(stderr, "finish initial nno \n");
+	//fprintf(stderr, "finish initial nno %d \n",  E->parallel.me);
 
 	for (imark = 1; imark <= E->advection.markers; imark++)
 	{
@@ -546,7 +622,7 @@ int *Element;
 		//fprintf(stderr,"%d %d %d\n",imark,C_marker[imark], Element[imark]);
 	}
 
-	fprintf(stderr, "finish initial\n");
+	//fprintf(stderr, "finish initial %d \n" , E->parallel.me );
 
 	for (el = 1; el <= nel; el++)
 	{
@@ -580,11 +656,12 @@ int *Element;
 		}
 	}
 
-	fprintf(stderr, "finish sum\n");
+	//fprintf(stderr, "finish sum %d start %d nno %d\n", E->parallel.me, start, nno);
 	for (m = 0; m < num; m++)
 	{
 		exchange_node_f20(E, C_nno[start + m], E->mesh.levmax);
 	}
+        //fprintf(stderr, "finish exchange\n");
 
 	for (node = 1; node <= nno; node++)
 	{
@@ -602,7 +679,7 @@ void element_markers(struct All_variables *E, int con)
 {
 	int i, el;
 	double dX[4];
-
+        int get_element();
 	E->advection.markerIX = 1;
 	E->advection.markerIZ = 1;
 
@@ -610,6 +687,7 @@ void element_markers(struct All_variables *E, int con)
 	{
 		for (i = 1; i <= E->advection.markers; i++)
 		{
+
 			el = get_element(E, E->XMC[1][i], E->XMC[2][i], dX);
 			E->CElement[i] = el;
 		}
