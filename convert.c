@@ -1,178 +1,127 @@
-/* read in velocity near the plume at processor 12, i=27, j=7 for 57h.5530 */
+C0755 6774 element_definitions.h
+/*	Header file containing the appropriate definitions for the elements being used 
+in the problem.   Include in all of the files linking in to the element program.  */
 
-#include <math.h>
-#include <stdio.h>
-#include <fcntl.h>
+#define ELN 8  /* for this element, the max nodes/vpoints/ppoints, used in indexing */
+#define ELV 8
+#define ELP 1
+#define EL1N 4
+#define EL1V 4
+#define EL1P 1
+#define GNVI ELV*ELN
+#define GNPI ELP*ELN
+#define GN1VI EL1V*EL1N
+#define GN1PI EL1P*EL1N
 
-#define PI	3.141593
-#define PI2	PI * 2
+#define GNVINDEX(n,v) ((ELV*((n)-1)) + ((v)-1))
+#define GNPINDEX(n,p) ((ELP*((n)-1)) + ((p)-1))
 
-int n1,n2,n3,n4;
+#define GNVXINDEX(d,n,v) ((ELV*ELN*(d))+(ELV*((n)-1)) + ((v)-1))
+#define GNPXINDEX(d,n,p) ((ELP*ELN*(d))+(ELP*((n)-1)) + ((p)-1))
+#define GNVXSHORT(d,i) ((ELV*ELN*(d))+(i))
+#define GNPXSHORT(d,i) ((ELP*ELN*(d))+(i))
 
-main(argc,argv)
-     int argc;
-     char **argv;
-{
-
-  FILE *fp1,*fp2,*fp3,*fp4,*fp5;
-  char input_s[200],filename1[250],filename2[250],inputf[250],outputf[250];
-  int stride,nno,nx,step,i,j,i1,j1,k,jj,nz,nz1,n,m,frame,proc;
-  double temp1,temp2,temp3,temp4,temp5,temp6,tmax,*t1,*t2,d1,d2;
-  double scale,cosa,sina,rr,vx,vy,time;
-  double rf,rt,alfa,beta,gama;
-  void to_uniform();
-  int nxt,nzt,ntot;
-  double *x,*y,*t,*c,*xv,*yv,*tt,*xx,*yy;
-  double *xx1,*yy1,*xx2,*yy2;
-  int nprocx,nprocz,nx2,nz2;
-  double direction,magnitude;
-
-  if (argc < 2)   {
-    fprintf(stderr,"Usage: executable PARAMETERFILE\n");
-    exit(10);
-  }
-
-  frame = atoi(argv[2]);
-  nx=atoi(argv[3]);
-  nz=atoi(argv[4]);
-
-  sprintf(filename1,"%s/coord.0",argv[1]);
-  fp2=fopen(filename1,"r");
-fprintf(stderr,"ok0 %s\n",filename1);
-
-  sprintf(filename1,"%s/temp_comp.%d",argv[1],frame);
-  fp1=fopen(filename1,"r");
-fprintf(stderr,"ok0 %s\n",filename1);
-  fgets(input_s,200,fp1);
-  sscanf(input_s,"%d %d %lf",&nno,&step,&time);
-
-fprintf(stderr,"ok1\n");
-
-  xx1 = (double *)malloc((nx+1)*sizeof(double));
-  yy1 = (double *)malloc((nz+1)*sizeof(double));
-  t = (double *)malloc((nno+1)*sizeof(double));
-  c = (double *)malloc((nno+1)*sizeof(double));
-  xv = (double *)malloc((nno+1)*sizeof(double));
-  yv = (double *)malloc((nno+1)*sizeof(double));
-
-  for (n=1;n<=nno;n++)    {
-    fgets(input_s,200,fp1);
-    sscanf(input_s,"%lf %lf %lf %lf",&temp1,&temp2,&temp3,&temp4);
-    t[n] = temp1;
-    c[n] = temp2;
-    xv[n] = temp3;
-    yv[n] = temp4;
-    }
-  fclose(fp1);
-fprintf(stderr,"ok2\n");
-
-  n1 = nx;
-  n2 = nz;
-  n3 = nx;
-  n4 = nz;
-fprintf(stderr,"ok3 %d %d %d %d\n",n1,n2,n3,n4);
-
-  xx2 = (double *)malloc((n3+1)*sizeof(double));
-  yy2 = (double *)malloc((n4+1)*sizeof(double));
-
-  fgets(input_s,200,fp2);
-  for (i=1;i<=n1;i++)   
-  for (j=1;j<=n2;j++)   {
-    fgets(input_s,200,fp2);
-    sscanf(input_s,"%d %lf %lf",&k,&temp1,&temp2);
-    if (j==1)xx1[i] = temp1;
-    if (i==1)yy1[j] = temp2;  
-    }
-  fclose(fp2);
+/*
+#define GNVINDEX(n,v) ((ELN*((v)-1)) + (n-1))
+#define GNPINDEX(n,p) ((ELN*((p)-1)) + (n-1))
+#define GNVXINDEX(d,n,v) ((ELV*ELN*(d))+(ELN*((v)-1)) + (n-1))
+#define GNPXINDEX(d,n,p) ((ELP*ELN*(d))+(ELN*((p)-1)) + (n-1))
+*/
 
 
-fprintf(stderr,"ok4 %lf %lf\n",xx1[n1],yy1[n2]);
+#define GMVINDEX(n,v) ((EL1V*((n)-1)) + (v-1))
+#define GMPINDEX(n,p) ((EL1P*((n)-1)) + (p-1))
+#define GMVXINDEX(d,n,v) ((EL1V*EL1N*(d))+(EL1V*((n)-1)) + (v-1))
+#define GMPXINDEX(d,n,p) ((EL1P*EL1N*(d))+(EL1P*((n)-1)) + (p-1))
 
-  d1 = (xx1[n1])/(n1-1);
-  d2 = (yy1[n2])/(n2-1);
-  for (i=1;i<=n3;i++)   
-    xx2[i] = d1*(i-1);  
-  for (i=1;i<=n4;i++)   
-    yy2[i] = d2*(i-1);  
-
-  fp2=fopen("temp","w");
-  fp3=fopen("strf","w");
-
-fprintf(stderr,"ok5\n");
-  to_uniform(xx1,n1,yy1,n2,xx2,n3,yy2,n4,t);
-  to_uniform(xx1,n1,yy1,n2,xx2,n3,yy2,n4,c);
-fprintf(stderr,"ok6\n");
-
-  for (i=1;i<=n3;i++)   
-  for (j=1;j<=n4;j++)   {
-      n = (i-1)*n4+j;
-      fprintf(fp2,"%lf %lf %lf\n",xx2[i],yy2[j],t[n]);
-      fprintf(fp3,"%lf %lf %lf\n",xx2[i],yy2[j],c[n]);
-    }
-  fclose(fp2);
-  fclose(fp3);
-
-  
-}
-
-void to_uniform(xx1,n1,yy1,n2,xx2,n3,yy2,n4,t)
-double *xx1,*yy1,*xx2,*yy2,*t;
-int n1,n2,n3,n4;
-{
-
-FILE *fp;
-double *temp1,*temp2,*temp3,dx1,dx2,area;
-int i,j,k1,k2,n,io,jo,ns,ne,ms,me;
-static double *temp;
-static int been_here=0;
-
- if(been_here==0)  {
-  temp = (double *)malloc((100000+1)*sizeof(double));
-  been_here++;
- }
-
-  ne = n1-1;
-  me = n2-1;
-
-  for (jo=1;jo<=n2;jo++)    {
-    ns = 1;
-    for (i=1;i<=n3;i++)    {
-
-      for (io=ns;io<=ne;io++)
-        if (xx2[i]<=xx1[io+1]&&xx2[i]>=xx1[io])   {
-          ns = io;
-          break;
-          }
-
-      dx1 = xx2[i]-xx1[ns];
-      dx2 = xx1[ns+1]-xx2[i];
-      area = dx1+dx2;
-      n = jo + (i-1)*n2;
-      k1 = jo + (ns-1)*n2;
-      k2 = jo + ns*n2;
-      temp[n] = (t[k1]*dx2+t[k2]*dx1)/area;
-      }
-    }
-
-  for (i=1;i<=n3;i++)    {
-    ms = 1;
-    for (j=1;j<=n4;j++)    {
-      for (jo=ms;jo<=me;jo++)
-        if (yy2[j]<=yy1[jo+1]&&yy2[j]>=yy1[jo])   {
-          ms = jo;
-          break;
-          }
-
-      dx1 = yy2[j]-yy1[ms];
-      dx2 = yy1[ms+1]-yy2[j];
-      area = dx1+dx2;
-      n = j + (i-1)*n4;
-      k1 = ms + (i-1)*n2;
-      k2 = ms + (i-1)*n2+1;
-      t[n] = (temp[k1]*dx2+temp[k2]*dx1)/area;
-      }
-    }
+#define GMVGAMMA(i,n) (4*(i) + (n))
 
 
- }
+/* Element definitions */
 
+static const int enodes[] = {0,2,4,8};
+static const int pnodes[] = {0,1,1,1};
+static const int vpoints[] = {0,2,4,8};
+static const int ppoints[] = {0,1,1,1};
+static const int spoints[] = {0,1,2,4};
+static const int onedvpoints[] = {0,0,2,4};
+static const int onedppoints[] = {0,0,1,1};
+static const int additional_dof[] = {0,0,1,2};
+
+/* More cumbersome, but more optimizable versions ! */
+
+#define ENODES3D 8
+#define ENODES2D 4
+#define VPOINTS3D 8
+#define VPOINTS2D 4
+#define PPOINTS3D 1
+#define PPOINTS2D 1
+#define SPOINTS3D 4
+#define SPOINTS2D 2
+#define V1DPOINTS3D 4
+#define V1DPOINTS2D 2
+#define P1DPOINTS3D 1
+#define P1DPOINTS2D 1
+
+/*  As we use arrays starting at index 1  */
+static const int sfnarraysize[] = {0,3,5,9};
+static const int onedsfnarsize[] = {0,0,3,5};
+static const int gptarraysize[] = {0,3,5,9};
+static const int pptarraysize[] = {0,2,2,2};
+static const int node_array_size[] = {0,3,5,9};
+static const int pnode_array_size[] = {0,2,2,2};
+static const int onedgptarsize[] = {0,0,3,5};
+static const int onedpptarsize[] = {0,0,2,2};
+/*  As we use arrays starting at index 0  */
+static const int loc_mat_size[] = {0,4,8,24};
+static const int stored_mat_size[] = {0,10,36,300};
+static const int node_mat_size[] = {0,3,18,81};
+static const int ploc_mat_size[] = {0,1,1,1};
+/*  Inter-node information */
+static const int max_eqn_interaction[]={0,3,21,81};
+static const int max_els_per_node[]={0,2,4,8};
+
+#define MAX_EQN_INT_3D 81
+#define MAX_EQN_INT_2D 21
+
+static const int seq[]={0,1,3,6,10,15,21,28,36,45,55,66,78,91,105,120,136,153,171,190,210,231,253,276,300};
+
+
+
+#define BETA  0.57735026918962576451      
+
+/*  4-pt co-ords  */
+
+/*   Declare everything to be static: no changes are made to this data ... it is 
+easiest to redeclare it all each time and have just one file of definitions   */
+
+static const struct One_d_int_points {
+	double x[2];
+	double weight[3]; 	 } 
+			g_1d[5] = 
+                        {	{{0.0,0.0},{0.0,0.0,0.0}},
+				{{-BETA,-BETA},{0.0,1.0,1.0}},
+				{{ BETA,-BETA},{0.0,1.0,1.0}}, 
+				{{ BETA, BETA},{0.0,1.0,1.0}}, 
+				{{-BETA, BETA},{0.0,1.0,1.0}}   } ;
+
+static const struct One_d_int_points 
+			l_1d[5] = 
+                        {	{{0.0,0.0},{0.0,0.0,0.0}},
+				{{-1.0,-1.0},{0.0,1.0,1.0}},
+				{{ 1.0,-1.0},{0.0,1.0,1.0}}, 
+				{{ 1.0, 1.0},{0.0,1.0,1.0}}, 
+				{{-1.0, 1.0},{0.0,1.0,1.0}}   } ;
+
+static const struct One_d_int_points 
+			p_1d[2] = 
+			{	{{0.0,0.0},{0.0,0.0,0.0}},
+				{{0.0,0.0},{0.0,2.0,4.0}} };
+	                                                  	   
+static const struct Int_points {
+	double x[3]; 
+	double weight[3];    }
+                        g_point[9] = 
+			{	{{0.0,0.0,0.0},{0.0,0.0,0.0}},
+				{{-BETA,-BETA,-BETA},{0.0,1.0,1.0}},
+				{{

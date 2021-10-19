@@ -26,7 +26,8 @@ int file_number;
   double *eedot, *nedot;
   double *eedot11, *nedot11, *eedot22, *nedot22, *eedot12, *nedot12;
   double *edot, *edot11, *edot22, *edot12;
-  int n, e;
+  double temp_comp1, temp_comp2, temp_comp0;
+  int n, e, temp_comp_count;
   void strain_rate_2_inv_moreout();
   double temp, temp11, temp22, temp12;
   void get_surface_velo();
@@ -49,7 +50,7 @@ int file_number;
     fp0 = fopen(output_file, "w");
     fprintf(fp0, "%6d %6d %.5e\n", E->mesh.nno, E->advection.timesteps, E->monitor.elapsed_time);
     for (i = 1; i <= E->lmesh.nno; i++)
-      fprintf(fp0, "%6d %.3e %.3e %.5e %.5e %.5e %.5e %.4e\n", i, E->X[1][i], E->X[2][i], E->V[1][i], E->V[2][i], E->T[i], E->C[i], E->Vi[i]);
+      fprintf(fp0, "%6d %.5e %.5e %.5e %.5e %.5e %.5e %.4e\n", i, E->X[1][i], E->X[2][i], E->V[1][i], E->V[2][i], E->T[i], E->C[i], E->Vi[i]);
     fclose(fp0);
   }
 
@@ -75,7 +76,19 @@ int file_number;
           }
           else if (E->control.phasefile_C || E->control.phasefile_Complete)
           {
-            fprintf(fp0, "%.4e %.4e %.4e %.4e %.4e %.4e %.4e %.4e\n", E->T[i], E->C[i], E->V[1][i], E->V[2][i], E->Vi[i], E->C_phasefile_nno[0][i], E->C_phasefile_nno[1][i], E->C_phasefile_nno[2][i]);
+
+            temp_comp0 = 0.0;
+            temp_comp1 = 0.0;
+            temp_comp2 = 0.0;
+            for (temp_comp_count=0; temp_comp_count<E->control.phasefile_C_flavor; temp_comp_count++) {
+              if(E->control.phasefile_C_mat_mineral[temp_comp_count]==0)
+                temp_comp0 += E->C_phasefile_nno[temp_comp_count][i];
+              else if (E->control.phasefile_C_mat_mineral[temp_comp_count]==1)
+                temp_comp1 += E->C_phasefile_nno[temp_comp_count][i];
+              else
+                temp_comp2 += E->C_phasefile_nno[temp_comp_count][i];
+            }
+            fprintf(fp0, "%.4e %.4e %.4e %.4e %.4e %.4e %.4e %.4e\n", E->T[i], E->C[i], E->V[1][i], E->V[2][i], E->Vi[i], temp_comp0, temp_comp1, temp_comp2);
           }
           else
           {

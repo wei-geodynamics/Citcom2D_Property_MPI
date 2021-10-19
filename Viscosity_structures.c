@@ -271,7 +271,7 @@ int propogate;
     const int elz = E->lmesh.elz;
     const int elx = E->lmesh.elx;
 
-    double visc_weakzone, viscincreaseslab = 1.0, tempdist, velobegin, viscreducephase = 1.0, viscreducec = 1.0;
+    double visc_weakzone, viscincreaseslab = 1.0, tempdist, velobegin, viscreducephase = 1.0, viscreducec = 1.0, visc_depth;
     double visc_r = 1.0;
     double tempdist_left, center_x, center_z, temp_loc_mid, temp_loc, temp_dist, temp_visc_log, temp_visc_log1, temp_visc_in;
     int nz, newelz;
@@ -1675,8 +1675,30 @@ int propogate;
                 viscincreaseslab = 1.0;
                 viscreducephase = 1.0;
                 viscreducec = 1.0;
+                visc_depth = 1.0;
+
                 t1 = E->X[1][E->ien[i].node[jj]];
                 r1 = E->X[2][E->ien[i].node[jj]];
+                if (r1 > E->viscosity.zlith)
+                {
+                    visc_depth = E->viscosity.Z[0];
+                }
+                else if (r1 > E->viscosity.z300)
+                {
+                    visc_depth = E->viscosity.Z[1];
+                }
+                else if (r1 > E->viscosity.zlm)
+                {
+                    visc_depth = E->viscosity.Z[2];
+                }
+                else if (r1 > E->viscosity.z1000)
+                {
+                    visc_depth = E->viscosity.Z[3];
+                }
+                else
+                {
+                    visc_depth = E->viscosity.Z[4];
+                }
 
                 if (E->control.visc_leftcor)
                 {
@@ -1767,7 +1789,7 @@ int propogate;
                     //fprintf(stderr, "%d %lf %lf %lf\n", m, E->C_phasefile_element[m][i], E->viscosity.N0[m], E->viscosity.E[m]);
                 }
 
-                EEta[(i - 1) * vpts + jj] = visc_weakzone * exp(temp_visc_all);
+                EEta[(i - 1) * vpts + jj] = visc_weakzone * visc_depth* exp(temp_visc_all);
                 //    fprintf(stderr, "visc CPU %d %d %.4e\n",E->parallel.me, (i - 1) * vpts + jj, EEta[(i - 1) * vpts + jj]);
                 if (E->viscosity.visc_platebond_const && r1 > E->viscosity.z_weakzone_platebond)
                 {
