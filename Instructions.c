@@ -940,10 +940,13 @@ void read_initial_settings(E) struct All_variables *E;
   input_string("phasefile_PREM", E->control.phasefile_PREM, "PREM.txt");
   input_double("depth_harz", &(E->control.depth_harz), "0.010453");
   input_boolean("phasefile_C", &(E->control.phasefile_C), "off");
-  input_int("phasefile_C_num_nno", &(E->control.phasefile_C_num_nno), "3");
+  /*input_int("phasefile_C_num_nno", &(E->control.phasefile_C_num_nno), "3");
   input_int("phasefile_C_num_element", &(E->control.phasefile_C_num_element), "1");
-  input_int("phasefile_C_num_marker", &(E->control.phasefile_C_num_marker), "1");
+  input_int("phasefile_C_num_marker", &(E->control.phasefile_C_num_marker), "1");*/
   input_int("phasefile_C_flavor", &(E->control.phasefile_C_flavor), "3");
+  E->control.phasefile_C_num_nno = E->control.phasefile_C_flavor;
+  E->control.phasefile_C_num_element = E->control.phasefile_C_flavor;
+  E->control.phasefile_C_num_marker = E->control.phasefile_C_flavor;
   input_int_vector("phasefile_C_mat_mineral", E->control.phasefile_C_flavor, (E->control.phasefile_C_mat_mineral));
 
   input_boolean("crust_generation", &(E->control.crust_generation), "off");

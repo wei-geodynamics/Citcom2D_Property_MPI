@@ -80,10 +80,11 @@ int file_number;
             temp_comp0 = 0.0;
             temp_comp1 = 0.0;
             temp_comp2 = 0.0;
-            for (temp_comp_count=0; temp_comp_count<E->control.phasefile_C_flavor; temp_comp_count++) {
-              if(E->control.phasefile_C_mat_mineral[temp_comp_count]==0)
+            for (temp_comp_count = 0; temp_comp_count < E->control.phasefile_C_flavor; temp_comp_count++)
+            {
+              if (E->control.phasefile_C_mat_mineral[temp_comp_count] == 0)
                 temp_comp0 += E->C_phasefile_nno[temp_comp_count][i];
-              else if (E->control.phasefile_C_mat_mineral[temp_comp_count]==1)
+              else if (E->control.phasefile_C_mat_mineral[temp_comp_count] == 1)
                 temp_comp1 += E->C_phasefile_nno[temp_comp_count][i];
               else
                 temp_comp2 += E->C_phasefile_nno[temp_comp_count][i];
@@ -139,7 +140,13 @@ int file_number;
       }
       else if (E->control.phasefile_C || E->control.phasefile_Complete)
       {
-        fprintf(fp0, "%.5e %.5e %d %d %d\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i], E->C_phasefile_marker_int[0][i]);
+        if (E->control.phasevisc_d)
+        {
+          fprintf(fp0, "%.5e %.5e %d %d %d %d %d %d %d %.5e %.5e %.5e %.5e\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i], E->C_phasefile_marker_int[0][i], E->C_phasefile_marker_int[1][i], E->C_phasefile_marker_int[2][i], E->C_phasefile_marker_int[3][i], E->C_phasefile_marker_double[E->C_phasefile_d_start_double][i], E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 1][i], E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 2][i], E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 3][i]);
+        }
+
+        else
+          fprintf(fp0, "%.5e %.5e %d %d %d %d %d %d\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i], E->C_phasefile_marker_int[0][i], E->C_phasefile_marker_int[1][i], E->C_phasefile_marker_int[2][i], E->C_phasefile_marker_int[3][i]);
       }
       else
         fprintf(fp0, "%.5e %.5e %d %d\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i]);
@@ -370,13 +377,13 @@ int file_number;
       }
 
       mark_P = mark_P_store[n];
-//      fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
+      //      fprintf(stderr, "%d %d %d\n", n, mark_P_PREM_store[n], mark_P_store[n]);
     }
     been_here++;
   }
 
   //  if (been_here==0)  {
-  sprintf(output_file, "%s/phasefile_all.%d.%d", E->control.data_file, file_number, E->parallel.me);
+  sprintf(output_file, "%s/phasefile_all.%d.%d", E->control.data_file, E->parallel.me, file_number);
   fp0 = fopen(output_file, "w");
   //    been_here++;
   //   }

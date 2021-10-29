@@ -1714,63 +1714,61 @@ int propogate;
                         visc_weakzone = E->control.visc_weakzone;
                     }
                 }
-                if (E->viscosity.visc_platebond)
-                {
-                    if (E->control.imposevelo)
-                    {
 
-                        velobegin = E->VB[1][noz * 7];
-                        newnum = 8;
-                        while (newnum <= nox - 1 && E->VB[1][noz * newnum] > velobegin - 910.0)
-                        {
-                            newnum++;
-                        }
-                        markvnum = newnum;
-                        if (E->X[2][E->ien[i].node[jj]] >= E->viscosity.z_weakzone_platebond && E->X[1][E->ien[i].node[jj]] - E->X[1][markvnum * noz] >= 0.0 - E->viscosity.width_weakzone_platebond && E->X[1][E->ien[i].node[jj]] - E->X[1][markvnum * noz] <= E->viscosity.width_weakzone_platebond)
+                if (E->control.imposevelo)
+                {
+
+                    velobegin = E->VB[1][noz * 7];
+                    newnum = 8;
+                    while (newnum <= nox - 1 && E->VB[1][noz * newnum] > velobegin - 910.0)
+                    {
+                        newnum++;
+                    }
+                    markvnum = newnum;
+                    if (E->X[2][E->ien[i].node[jj]] >= E->viscosity.z_weakzone_platebond && E->X[1][E->ien[i].node[jj]] - E->X[1][markvnum * noz] >= 0.0 - E->viscosity.width_weakzone_platebond && E->X[1][E->ien[i].node[jj]] - E->X[1][markvnum * noz] <= E->viscosity.width_weakzone_platebond)
+                    {
+                        visc_weakzone = E->viscosity.visc_reduce_platebond;
+                    }
+
+                } /* end of control.imposevelo */
+                if (E->control.trechmigrate)
+                {
+                    loc_mid = E->control.velo_surf_loc_mid;
+                    loc_mid += E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale;
+                    t1 = E->X[1][E->ien[i].node[jj]];
+                    r1 = E->X[2][E->ien[i].node[jj]];
+                    switch (E->control.initialTOption)
+                    {
+                    case 1:
+                        tempdist = (t1 - loc_mid) * tan(E->control.dip_margin * M_PI / 180.0) + 1.0 - r1;
+                        tempdist_left = (t1 - loc_mid) * tan(E->control.dip_margin_left * M_PI / 180.0) + 1.0 - r1;
+                        if (tempdist_left >= (0.0 - E->viscosity.left_weakzone_platebond) *
+                                                 tan(E->control.dip_margin_left * M_PI / 180.0) &&
+                            tempdist <= E->viscosity.right_weakzone_platebond *
+                                            tan(E->control.dip_margin * M_PI / 180.0) &&
+                            r1 >= E->viscosity.z_weakzone_platebond)
                         {
                             visc_weakzone = E->viscosity.visc_reduce_platebond;
                         }
-
-                    } /* end of control.imposevelo */
-                    if (E->control.trechmigrate)
-                    {
-                        loc_mid = E->control.velo_surf_loc_mid;
-                        loc_mid += E->control.velo_surf_loc_mid_rate * E->monitor.elapsed_time * E->control.timescale;
-                        t1 = E->X[1][E->ien[i].node[jj]];
-                        r1 = E->X[2][E->ien[i].node[jj]];
-                        switch (E->control.initialTOption)
+                        break;
+                    case 10:
+                        center_x = loc_mid + E->control.dip_center_x;
+                        center_z = 1.0 - E->control.dip_center_z;
+                        if (r1 >= E->viscosity.z_weakzone_platebond && t1 < center_x)
                         {
-                        case 1:
-                            tempdist = (t1 - loc_mid) * tan(E->control.dip_margin * M_PI / 180.0) + 1.0 - r1;
-                            tempdist_left = (t1 - loc_mid) * tan(E->control.dip_margin_left * M_PI / 180.0) + 1.0 - r1;
-                            if (tempdist_left >= (0.0 - E->viscosity.left_weakzone_platebond) *
-                                                     tan(E->control.dip_margin_left * M_PI / 180.0) &&
-                                tempdist <= E->viscosity.right_weakzone_platebond *
-                                                tan(E->control.dip_margin * M_PI / 180.0) &&
-                                r1 >= E->viscosity.z_weakzone_platebond)
+                            tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
+                            if (tempdist >= 0.0 - E->viscosity.left_weakzone_platebond && tempdist <= E->viscosity.right_weakzone_platebond)
                             {
                                 visc_weakzone = E->viscosity.visc_reduce_platebond;
                             }
-                            break;
-                        case 10:
-                            center_x = loc_mid + E->control.dip_center_x;
-                            center_z = 1.0 - E->control.dip_center_z;
-                            if (r1 >= E->viscosity.z_weakzone_platebond && t1 < center_x)
-                            {
-                                tempdist = E->control.ocean_lith_margin_curve - sqrt((t1 - center_x) * (t1 - center_x) + (r1 - center_z) * (r1 - center_z));
-                                if (tempdist >= 0.0 - E->viscosity.left_weakzone_platebond && tempdist <= E->viscosity.right_weakzone_platebond)
-                                {
-                                    visc_weakzone = E->viscosity.visc_reduce_platebond;
-                                }
-                            }
-
-                            break;
-
-                        default:
-                            break;
                         }
-                    } /* end of trenchmigrate */
-                }
+
+                        break;
+
+                    default:
+                        break;
+                    }
+                } /* end of trenchmigrate */
 
                 for (kk = 1; kk <= ends; kk++)
                 {
@@ -1789,7 +1787,7 @@ int propogate;
                     //fprintf(stderr, "%d %lf %lf %lf\n", m, E->C_phasefile_element[m][i], E->viscosity.N0[m], E->viscosity.E[m]);
                 }
 
-                EEta[(i - 1) * vpts + jj] = visc_weakzone * visc_depth* exp(temp_visc_all);
+                EEta[(i - 1) * vpts + jj] = visc_weakzone * visc_depth * exp(temp_visc_all);
                 //    fprintf(stderr, "visc CPU %d %d %.4e\n",E->parallel.me, (i - 1) * vpts + jj, EEta[(i - 1) * vpts + jj]);
                 if (E->viscosity.visc_platebond_const && r1 > E->viscosity.z_weakzone_platebond)
                 {
@@ -1836,7 +1834,7 @@ int propogate;
         }
         break;
     }
-
+    if(E->parallel.me==0)
     fprintf(stderr, "visc finished\n");
 
     visits++;

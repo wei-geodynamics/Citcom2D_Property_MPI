@@ -736,6 +736,7 @@ struct CONTROL
     double Ra_670_basalt, clapeyron670_basalt, transT670_basalt, width670_basalt;
     int temperature_perturbation;
     int phasefile, phasefile_C, phasefile_buoyancy, phasefile_C_num_nno, phasefile_C_num_marker, phasefile_C_num_element, phasefile_buoyancy_correction, phasefile_C_flavor;
+
     double phasefile_buoyancy_depth, phasefile_buoyancy_continent;
     double phasefile_buoyancy_crust, phasefile_buoyancy_crust_depth;
     char phasefile_basa[200], phasefile_pyro[200], phasefile_harz[200], phasefile_PREM[200];
@@ -933,7 +934,7 @@ struct All_variables
     int *C_phasefile_marker_int[100];
     int C_phasefile_markers_int_num_store, C_phasefile_markers_double_num_store;
     double *C_phasefile_nno[100], *C_phasefile_element[100], *C_phasefile_marker_double[100];
-
+    int C_phasefile_d_start_int, C_phasefile_d_start_double, C_phasefile_d_start_element, C_phasefile_d_start_nno;
     double *heating_visc, *heating_adi, *heating_latent;
     double *Fas670, *Fas410, *Fas670_basalt;
     double *Fas670_b, *Fas410_b, *Fas670_basalt_b;

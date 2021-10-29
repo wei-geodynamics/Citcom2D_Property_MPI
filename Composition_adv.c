@@ -61,7 +61,7 @@ void Runge_Kutta(struct All_variables *E, double *C, double *V[4], int on_off)
 	void element_markers();
 	void get_C_from_markers();
 	void get_C_from_markers_multi();
-
+	void ddot_num_markers();
 	/*   predicted velocity Vpred at predicted marker positions at t+dt  */
 	velocity_markers(E, V, on_off);
 
@@ -80,6 +80,8 @@ void Runge_Kutta(struct All_variables *E, double *C, double *V[4], int on_off)
 	if (E->control.phasefile_C || E->control.phasefile_Complete)
 	{
 		get_C_from_markers_multi(E, E->C_phasefile_marker_int[0], E->C_phasefile_nno, E->C_phasefile_element, 0, E->control.phasefile_C_flavor, E->CElement);
+		if (E->control.phasevisc_d)
+			ddotnum_markers();
 	}
 	E->advection.markers_g = -1;
 	if (E->advection.timesteps % 10 == 0)
@@ -99,6 +101,7 @@ void Euler(struct All_variables *E, double *C, double *V[4], int on_off)
 	void element_markers();
 	void get_C_from_markers();
 	void get_C_from_markers_multi();
+	void ddot_num_markers();
 	/*   velocity VO at t and x=XMC  */
 	velocity_markers(E, V, on_off);
 
@@ -281,7 +284,7 @@ void unify_markers_array(struct All_variables *E, int no_tran, int no_recv)
 		fflush(E->fp);
 		parallel_process_termination();
 	}
-//        fprintf(stderr, "CPU %d transfer array %d\n", E->parallel.me, E->C_phasefile_markers_int_num_store);
+	//        fprintf(stderr, "CPU %d transfer array %d\n", E->parallel.me, E->C_phasefile_markers_int_num_store);
 	ii = jj = 0;
 	if (E->advection.markers1 >= E->advection.markers)
 	{
@@ -548,13 +551,118 @@ void get_C_from_markers(struct All_variables *E, double *C)
 		}
 		E->CE[el] = temp3;
 	}
-//	fprintf(stderr, "CPU %d before exchange C", E->parallel.me);
+	//	fprintf(stderr, "CPU %d before exchange C", E->parallel.me);
 	exchange_node_f20(E, C, E->mesh.levmax);
-//	fprintf(stderr, "CPU %d after exchange C", E->parallel.me);
+	//	fprintf(stderr, "CPU %d after exchange C", E->parallel.me);
 
 	for (node = 1; node <= nno; node++)
 	{
 		C[node] = C[node] * E->Mass[node];
+	}
+
+	return;
+}
+
+void get_C_from_markers_double(E, C_marker, C_nno, C_element, Element, iflog) struct All_variables *E;
+int *C_marker;
+double *C_nno;
+double *C_element;
+int *Element;
+int iflog;
+{
+
+	int el, i, imark, j, node, m, n;
+	double C1, temp3, temp1, temp2, temp0, temp_sum;
+	static int been_here = 0;
+	static int *element[100];
+	static double *cvalue;
+	const int elx = E->lmesh.elx;
+	const int elz = E->lmesh.elz;
+
+	const int nox = E->lmesh.nox;
+	const int noz = E->lmesh.noz;
+	const int nno = E->lmesh.nno;
+	const int nel = E->lmesh.nel;
+	const int dims = E->mesh.nsd;
+	const int ends = enodes[dims];
+	const int lev = E->mesh.levmax;
+	//        fprintf(stderr, "before initial element %d \n", E->parallel.me);
+
+	if (been_here == 0)
+	{
+		been_here++;
+		element[0] = (int *)malloc((nel + 1) * sizeof(int));
+		cvalue = (double *)malloc((nel + 1) * sizeof(double));
+	}
+	//	fprintf(stderr, "finish initial element %d \n", E->parallel.me);
+
+	for (el = 1; el <= nel; el++)
+	{
+		element[0][el] = 0;
+		cvalue[el] = 0.0;
+	}
+
+	//fprintf(stderr, "start initial nno %d\n",  E->parallel.me);
+
+	for (i = 1; i <= nno; i++)
+	{
+		C_nno[i] = 0.0;
+	}
+	/* for each element, count dense and regular marks  */
+	//fprintf(stderr, "finish initial nno %d \n",  E->parallel.me);
+
+	for (imark = 1; imark <= E->advection.markers; imark++)
+	{
+		element[0][Element[imark]] += 1.0;
+		if (iflog)
+		{
+			cvalue[Element[imark]] += log(C_marker[imark]);
+		}
+		else
+		{
+			cvalue[Element[imark]] += C_marker[imark];
+		}
+		//fprintf(stderr,"%d %d %d\n",imark,C_marker[imark], Element[imark]);
+	}
+
+	//fprintf(stderr, "finish initial %d \n" , E->parallel.me );
+
+	for (el = 1; el <= nel; el++)
+	{
+		temp0 = element[0][Element[imark]];
+		if (temp0)
+		{
+			if (iflog)
+			{
+				temp3 = exp(cvalue[el] / temp0);
+			}
+			else
+			{
+				temp3 = cvalue[el] / temp0;
+			}
+		}
+		else
+		{
+			temp3 = 0.0;
+		}
+		C_element[el] = temp3;
+		for (j = 1; j <= ends; j++)
+		{
+			node = E->ien[el].node[j];
+			C_nno[node] += E->TWW[lev][el].node[j] * temp3;
+		}
+	}
+
+	//fprintf(stderr, "finish sum %d start %d nno %d\n", E->parallel.me, start, nno);
+
+	exchange_node_f20(E, C_nno, E->mesh.levmax);
+
+	//fprintf(stderr, "finish exchange\n");
+
+	for (node = 1; node <= nno; node++)
+	{
+
+		C_nno[node] = C_nno[node] * E->Mass[node];
 	}
 
 	return;
@@ -584,7 +692,7 @@ int *Element;
 	const int dims = E->mesh.nsd;
 	const int ends = enodes[dims];
 	const int lev = E->mesh.levmax;
-//        fprintf(stderr, "before initial element %d \n", E->parallel.me);
+	//        fprintf(stderr, "before initial element %d \n", E->parallel.me);
 
 	if (been_here == 0)
 	{
@@ -594,7 +702,7 @@ int *Element;
 			element[m] = (int *)malloc((nel + 1) * sizeof(int));
 		}
 	}
-//	fprintf(stderr, "finish initial element %d \n", E->parallel.me);
+	//	fprintf(stderr, "finish initial element %d \n", E->parallel.me);
 
 	for (el = 1; el <= nel; el++)
 	{
@@ -661,7 +769,7 @@ int *Element;
 	{
 		exchange_node_f20(E, C_nno[start + m], E->mesh.levmax);
 	}
-        //fprintf(stderr, "finish exchange\n");
+	//fprintf(stderr, "finish exchange\n");
 
 	for (node = 1; node <= nno; node++)
 	{
@@ -679,7 +787,7 @@ void element_markers(struct All_variables *E, int con)
 {
 	int i, el;
 	double dX[4];
-        int get_element();
+	int get_element();
 	E->advection.markerIX = 1;
 	E->advection.markerIZ = 1;
 
@@ -777,6 +885,77 @@ for 2D, we do not want to implement this yet
 	return;
 }
 
+void ddotnum_markers(struct All_variables *E, double *V[4], int con)
+{
+	//FILE *fp0;
+	//char filename1[100];
+	//int eln, elo, i, j, el, n1, n2, n3, n4;
+
+	int i;
+	int el;
+	double area, dX[4], weigh1, weigh2, weigh3, weigh4, weigh5, weigh6, weigh7, weigh8;
+
+	//static int onf = 0;
+	static int been_here = 0;
+	static double dx, dy;
+
+	if (been_here++ == 0)
+	{
+		dx = (E->XP[1][E->lmesh.nox] - E->XP[1][1]) / E->lmesh.elx;
+	}
+
+	/*	sprintf(filename1,"markers%d.%d",E->advection.timesteps,onf);
+	fp0 = fopen(filename1,"w"); 
+	onf = (onf == 0) ? 1 : 0;
+*/
+
+	/*  el can also be obtained from CElement[i] and dX can then be
+ dX[1]=XMC[1][i]-X[1][ien[el].node[1]]
+and  dX[2]=XMC[2][i]-X[2][ien[el].node[1]]. So no element number
+is needed to be sought. But since it is so easy to get anyway
+for 2D, we do not want to implement this yet
+*/
+
+	if (con == 1)
+	{
+		for (i = 1; i <= E->advection.markers; i++)
+		{
+			el = get_element(E, E->XMCpred[1][i], E->XMCpred[2][i], dX);
+
+			weigh1 = (E->eco[el].size[1] - dX[1]) * (E->eco[el].size[2] - dX[2]);
+			weigh4 = dX[1] * (E->eco[el].size[2] - dX[2]);
+			weigh3 = dX[1] * dX[2];
+			weigh2 = (E->eco[el].size[1] - dX[1]) * dX[2];
+			area = E->eco[el].size[1] * E->eco[el].size[2];
+
+			E->Vpred[1][i] = (weigh1 * V[1][E->ien[el].node[1]] + weigh2 * V[1][E->ien[el].node[2]] + weigh3 * V[1][E->ien[el].node[3]] + weigh4 * V[1][E->ien[el].node[4]]) / area;
+			E->Vpred[2][i] = (weigh1 * V[2][E->ien[el].node[1]] + weigh2 * V[2][E->ien[el].node[2]] + weigh3 * V[2][E->ien[el].node[3]] + weigh4 * V[2][E->ien[el].node[4]]) / area;
+
+			E->CElement[i] = el;
+		}
+	}
+	else if (con == 0)
+	{
+		for (i = 1; i <= E->advection.markers; i++)
+		{
+
+			el = get_element(E, E->XMC[1][i], E->XMC[2][i], dX);
+
+			weigh1 = (E->eco[el].size[1] - dX[1]) * (E->eco[el].size[2] - dX[2]);
+			weigh4 = dX[1] * (E->eco[el].size[2] - dX[2]);
+			weigh3 = dX[1] * dX[2];
+			weigh2 = (E->eco[el].size[1] - dX[1]) * dX[2];
+			area = E->eco[el].size[1] * E->eco[el].size[2];
+
+			E->VO[1][i] = (weigh1 * V[1][E->ien[el].node[1]] + weigh2 * V[1][E->ien[el].node[2]] + weigh3 * V[1][E->ien[el].node[3]] + weigh4 * V[1][E->ien[el].node[4]]) / area;
+			E->VO[2][i] = (weigh1 * V[2][E->ien[el].node[1]] + weigh2 * V[2][E->ien[el].node[2]] + weigh3 * V[2][E->ien[el].node[3]] + weigh4 * V[2][E->ien[el].node[4]]) / area;
+
+			E->CElement[i] = el;
+		}
+	}
+
+	return;
+}
 /* ================================================ 
   works for uniform mesh in x and y, but unlimited in z
  ================================================ */
@@ -858,7 +1037,7 @@ int get_element(struct All_variables *E, double XMC1, double XMC2, double dX[4])
 	el = E->advection.markerIZ + (E->advection.markerIX - 1) * elz;
 	if (j >= jj)
 	{
-		fprintf(E->fp, "!!!overflow %lf %lf %d\n", XMC1, XMC2, el);
+		fprintf(E->fp, "!!!overflow %d %lf %lf %d\n", E->parallel.me, XMC1, XMC2, el);
 		fflush(E->fp);
 		parallel_process_termination();
 	}

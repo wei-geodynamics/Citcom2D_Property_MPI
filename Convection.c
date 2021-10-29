@@ -177,30 +177,42 @@ void convection_initial_fields(E) struct All_variables *E;
         fprintf(stderr, "construct marker array\n");
       /* creat array for tracer to store  in marker size */
       /* note first two are int for flavor */
-      E->C_phasefile_markers_int_num_store = 0;
-      for (i = 0; i <= 1; i++)
-      {
-        E->C_phasefile_marker_int[i] = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
-        E->C_phasefile_markers_int_num_store++;
-      }
       /* the next two are for initial processer number and marker ID */
-      for (i = 2; i <= 3; i++)
+      /* the first n double are not used yet */
+
+      E->C_phasefile_markers_int_num_store = 4;
+
+      E->C_phasefile_markers_double_num_store = 0;
+      if (E->control.phasevisc_d)
+      {
+        E->C_phasefile_d_start_double = E->C_phasefile_markers_double_num_store;
+        E->C_phasefile_d_start_element = E->control.phasefile_C_num_element;
+        E->C_phasefile_d_start_nno = E->control.phasefile_C_num_nno;
+        E->C_phasefile_markers_double_num_store += 4;
+        E->control.phasefile_C_num_element += 4;
+        E->control.phasefile_C_num_nno += 4;
+      }
+
+      if (E->C_phasefile_markers_double_num_store == 0)
+      {
+        E->C_phasefile_markers_double_num_store = 1;
+      }
+
+      for (i = 0; i < E->C_phasefile_markers_int_num_store; i++)
       {
         E->C_phasefile_marker_int[i] = (int *)malloc((E->advection.markers_uplimit + 1) * sizeof(int));
-        E->C_phasefile_markers_int_num_store++;
       }
-      /* the first n double are not used yet */
-      E->C_phasefile_markers_double_num_store = 0;
-      for (i = 0; i <= 1 - 1; i++)
+
+      for (i = 0; i < E->C_phasefile_markers_double_num_store; i++)
       {
         E->C_phasefile_marker_double[i] = (double *)malloc((E->advection.markers_uplimit + 1) * sizeof(double));
-        E->C_phasefile_markers_double_num_store++;
       }
       /* creat array for tracer to store  in element size */
       if (me == 0)
         fprintf(stderr, "construct marker element array\n");
       /* the first n are for ratio of each type particle */
-      for (i = 0; i <= E->control.phasefile_C_num_element - 1; i++)
+
+      for (i = 0; i < E->control.phasefile_C_num_element; i++)
       {
         E->C_phasefile_element[i] = (double *)malloc((nel + 1) * sizeof(double));
       }
@@ -209,7 +221,7 @@ void convection_initial_fields(E) struct All_variables *E;
 
       /* creat array for tracer to store  in nno size */
       /* the first n are for C component at nodes */
-      for (i = 0; i <= E->control.phasefile_C_num_nno - 1; i++)
+      for (i = 0; i < E->control.phasefile_C_num_nno; i++)
       {
         E->C_phasefile_nno[i] = (double *)malloc((nno + 1) * sizeof(double));
       }
@@ -615,6 +627,7 @@ void convection_initial_markers(E) struct All_variables *E;
   FILE *fp;
   void get_C_from_markers();
   void get_C_from_markers_multi();
+  void get_C_from_markers_double();
   double t1, r1, tempdist, loc_mid, center_x, center_z;
   node = 0;
   const int nel = E->lmesh.nel;
@@ -645,19 +658,6 @@ void convection_initial_markers(E) struct All_variables *E;
         break;
       default:
         break;
-      }
-
-      if (E->control.phasevisc_d)
-      {
-        if (E->XMC[2][node] < E->viscosity.zlm)
-          E->C12[node] = 1;
-        else
-          E->C12[node] = 0;
-        if (E->control.phasevisc_d)
-        {
-          E->d_marker[node] = E->control.phasevisc_d0;
-          E->d_marker_old[node] = E->control.phasevisc_d0;
-        }
       }
 
       if (E->control.phasefile_C || E->control.phasefile_Complete)
@@ -825,7 +825,7 @@ void convection_initial_markers(E) struct All_variables *E;
             }
           }
           break;
-        }
+        } // end of initialCOption
 
         if (r1 >= 1.0 - E->control.depth_lith_margin)
         {
@@ -850,8 +850,19 @@ void convection_initial_markers(E) struct All_variables *E;
             }
           }
         }
+      } // end of phase file Complete
+      // here to store initial marker type
+      E->C_phasefile_marker_int[1][node] = E->C_phasefile_marker_int[0][node];
+      if (E->control.phasevisc_d)
+      {
+        E->C_phasefile_marker_double[E->C_phasefile_d_start_double][node] = E->control.phasevisc_d0;
+        E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 1][node] = E->control.phasevisc_d0;
+        E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 2][node] = 0.0;
+        E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 3][node] = 0.0;
       }
-    }
+      E->C_phasefile_marker_int[2][node] = E->parallel.me;
+      E->C_phasefile_marker_int[3][node] = node;
+    } // end of coord confirm
   } while (node < E->advection.markers);
 
   E->advection.markers = node;
@@ -862,6 +873,8 @@ void convection_initial_markers(E) struct All_variables *E;
   if (E->control.phasefile_C || E->control.phasefile_Complete)
   {
     get_C_from_markers_multi(E, E->C_phasefile_marker_int[0], E->C_phasefile_nno, E->C_phasefile_element, 0, E->control.phasefile_C_flavor, E->CElement);
+    if (E->control.phasevisc_d)
+      get_C_from_markers_double(E, E->C_phasefile_marker_double[E->C_phasefile_d_start_double], E->C_phasefile_nno[E->C_phasefile_d_start_nno], E->C_phasefile_element[E->C_phasefile_d_start_element], E->CElement, 1);
     /* 1 store last step 0 store current step */
     for (i = 1; i <= E->advection.markers; i++)
     {
@@ -905,10 +918,17 @@ int lev;
       }
       else if (E->control.phasefile_C || E->control.phasefile_Complete)
       {
-        sscanf(input_s, "%lf %lf %lf %lf %lf %lf %lf %lf", &E->T[i], &E->C[i], &E->V[1][i], &E->V[2][i], &E->Vi[i], &E->C_phasefile_nno[0][i], &E->C_phasefile_nno[1][i], &E->C_phasefile_nno[2][i]);
+        if (E->control.phasevisc_d)
+        {
+          sscanf(input_s, "%lf %lf %lf %lf %lf %lf %lf %lf", &E->T[i], &E->C[i], &t1, &t2, &E->Vi[i], &t3, &t4, &t5, &E->C_phasefile_nno[E->C_phasefile_d_start_nno][i], &E->C_phasefile_nno[E->C_phasefile_d_start_nno + 1][i], &E->C_phasefile_nno[E->C_phasefile_d_start_nno + 2][i], &E->C_phasefile_nno[E->C_phasefile_d_start_nno + 3][i]);
+        }
+        else
+          sscanf(input_s, "%lf %lf %lf %lf %lf %lf %lf %lf %lf\n", &E->T[i], &E->C[i], &t1, &t2, &E->Vi[i], &E->C_phasefile_nno[0][i], &E->C_phasefile_nno[1][i], &E->C_phasefile_nno[2][i], &E->C_phasefile_nno[3][i]);
       }
       else
+      {
         sscanf(input_s, "%lf %lf %lf %lf %lf", &E->T[i], &E->C[i], &t1, &t2, &t3);
+      }
       E->U[E->id[i].doff[1]] = t1;
       E->U[E->id[i].doff[2]] = t2;
     }
@@ -952,16 +972,18 @@ void process_restart_mk(E) struct All_variables *E;
   int i, j, k, ii, size2;
   char input_s[200], output_file[255], in_file[255];
   FILE *fp;
-  double t1;
+  int temp_int_1, temp_int_2;
+  double t1, temp_double_1;
   const int nel = E->lmesh.nel;
   void get_C_from_markers();
   void get_C_from_markers_multi();
+  void get_C_from_markers_double();
   sprintf(output_file, "%s/traces.%d.%d", E->convection.old_T_file, E->parallel.me, E->monitor.solution_cycles);
 
   fp = fopen(output_file, "r");
 
   fgets(input_s, 200, fp);
-  sscanf(input_s, "%d %d %lf", &E->advection.markers, &E->advection.timesteps, &E->monitor.elapsed_time);
+  sscanf(input_s, "%d %d %d %lf", &E->advection.markers, &temp_int_1, &temp_int_2, &temp_double_1);
   for (i = 1; i <= E->advection.markers; i++)
   {
     fgets(input_s, 200, fp);
@@ -969,15 +991,28 @@ void process_restart_mk(E) struct All_variables *E;
     {
       if (E->control.phasevisc_d)
       {
-        sscanf(input_s, "%lf %lf %d %d %lf %lf %lf %lf %lf %lf\n", E->XMC[1][i], E->XMC[2][i], E->CElement[i], E->C12[i], E->Cphase_marker[i], E->Cphase_marker_old[i], E->d_marker[i], E->d_marker_old[i], E->d_dotnum[i], E->d_dot[i]);
+        sscanf(input_s, "%lf %lf %d %d %lf %lf %lf %lf %lf %lf\n", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->Cphase_marker[i], &E->Cphase_marker_old[i], &E->d_marker[i], &E->d_marker_old[i], &E->d_dotnum[i], &E->d_dot[i]);
       }
     }
     else if (E->control.phasefile_C || E->control.phasefile_Complete)
     {
-      sscanf(input_s, "%lf %lf %d %d %d %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->C_phasefile_marker_int[0][i], &E->C_phasefile_marker_int[2][i], &E->C_phasefile_marker_int[3][i]);
+      if (E->control.phasevisc_d)
+      {
+        sscanf(input_s, "%lf %lf %d %d %d %d %d %d %lf %lf %lf %lf\n", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->C_phasefile_marker_int[0][i], &E->C_phasefile_marker_int[1][i], &E->C_phasefile_marker_int[2][i], &E->C_phasefile_marker_int[3][i], &E->C_phasefile_marker_double[E->C_phasefile_d_start_double][i], &E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 1][i], &E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 2][i], &E->C_phasefile_marker_double[E->C_phasefile_d_start_double + 3][i]);
+      }
+      else
+        sscanf(input_s, "%lf %lf %d %d %d %d %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i], &E->C_phasefile_marker_int[0][i], &E->C_phasefile_marker_int[1][i], &E->C_phasefile_marker_int[2][i], &E->C_phasefile_marker_int[3][i]);
     }
     else
       sscanf(input_s, "%lf %lf %d %d", &E->XMC[1][i], &E->XMC[2][i], &E->CElement[i], &E->C12[i]);
+    if (E->XMC[2][i] < E->XP[2][1])
+      E->XMC[2][i] = E->XP[2][1];
+    else if (E->XMC[2][i] > E->XP[2][E->lmesh.noz])
+      E->XMC[2][i] = E->XP[2][E->lmesh.noz];
+    if (E->XMC[1][i] < E->XP[1][1])
+      E->XMC[1][i] = E->XP[1][1];
+    else if (E->XMC[1][i] > E->XP[1][E->lmesh.nox])
+      E->XMC[1][i] = E->XP[1][E->lmesh.nox];
   }
   for (i = 1; i <= nel; i++)
   {
@@ -997,6 +1032,11 @@ void process_restart_mk(E) struct All_variables *E;
   if (E->control.phasefile_C || E->control.phasefile_Complete)
   {
     get_C_from_markers_multi(E, E->C_phasefile_marker_int[0], E->C_phasefile_nno, E->C_phasefile_element, 0, E->control.phasefile_C_flavor, E->CElement);
+    if (E->control.phasevisc_d)
+    {
+
+      get_C_from_markers_double(E, E->C_phasefile_marker_double[E->C_phasefile_d_start_double], E->C_phasefile_nno[E->C_phasefile_d_start_nno], E->C_phasefile_element[E->C_phasefile_d_start_element], E->CElement, 1);
+    }
   }
 
   return;
